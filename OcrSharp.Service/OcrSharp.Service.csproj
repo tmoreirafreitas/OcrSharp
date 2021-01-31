@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.95.4" />
+    <PackageReference Include="Emgu.CV" Version="4.5.1.4349" />
+    <PackageReference Include="Emgu.CV.Bitmap" Version="4.5.1.4349" />
+    <PackageReference Include="Emgu.CV.runtime.windows" Version="4.5.1.4349" />
+    <PackageReference Include="Hueppauff.PdfiumViewer.Core" Version="1.0.19172.6" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="5.0.0" />
+    <PackageReference Include="PDFiumSharpV2" Version="1.0.0" />
+    <PackageReference Include="PdfPig" Version="0.1.4" />
+    <PackageReference Include="Tesseract" Version="4.1.1" />
+    <PackageReference Include="TesseractSharp" Version="1.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OcrSharp.Domain\OcrSharp.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Library\pdfium.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

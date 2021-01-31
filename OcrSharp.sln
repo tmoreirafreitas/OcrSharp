@@ -1,0 +1,60 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30804.86
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "0 - Api", "0 - Api", "{FFAC7994-E70B-4EBB-A875-CAEBBEA40B49}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "1 - Service", "1 - Service", "{434FFC91-A12C-430C-AF1F-F009EDC53257}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "2 - Domain", "2 - Domain", "{51D57525-370C-4F43-B73A-A2C9E302EB5F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "3 - Infra", "3 - Infra", "{832A8DF0-FB3A-4EAA-BC52-96EB46BEEAE9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Domain", "OcrSharp.Domain\OcrSharp.Domain.csproj", "{9A724844-7929-4F30-9D0E-ED745439C953}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Service", "OcrSharp.Service\OcrSharp.Service.csproj", "{C94CCB0E-F7B9-45D1-8CED-181734C1242F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Api", "OcrSharp.Api\OcrSharp.Api.csproj", "{74B81BA1-1E1F-4823-846D-18E0E0E0780E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "3.1 - CrossCutting", "3.1 - CrossCutting", "{8E7D42A5-BE32-4281-B0EF-31F6A54D2B90}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Infra.CrossCutting.IoC", "OcrSharp.Infra.CrossCutting.IoC\OcrSharp.Infra.CrossCutting.IoC.csproj", "{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9A724844-7929-4F30-9D0E-ED745439C953}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9A724844-7929-4F30-9D0E-ED745439C953}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9A724844-7929-4F30-9D0E-ED745439C953}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9A724844-7929-4F30-9D0E-ED745439C953}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C94CCB0E-F7B9-45D1-8CED-181734C1242F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C94CCB0E-F7B9-45D1-8CED-181734C1242F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C94CCB0E-F7B9-45D1-8CED-181734C1242F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C94CCB0E-F7B9-45D1-8CED-181734C1242F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{74B81BA1-1E1F-4823-846D-18E0E0E0780E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74B81BA1-1E1F-4823-846D-18E0E0E0780E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74B81BA1-1E1F-4823-846D-18E0E0E0780E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74B81BA1-1E1F-4823-846D-18E0E0E0780E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9A724844-7929-4F30-9D0E-ED745439C953} = {51D57525-370C-4F43-B73A-A2C9E302EB5F}
+		{C94CCB0E-F7B9-45D1-8CED-181734C1242F} = {434FFC91-A12C-430C-AF1F-F009EDC53257}
+		{74B81BA1-1E1F-4823-846D-18E0E0E0780E} = {FFAC7994-E70B-4EBB-A875-CAEBBEA40B49}
+		{8E7D42A5-BE32-4281-B0EF-31F6A54D2B90} = {832A8DF0-FB3A-4EAA-BC52-96EB46BEEAE9}
+		{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38} = {8E7D42A5-BE32-4281-B0EF-31F6A54D2B90}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {73FD6368-41FD-44DC-9B00-885BD6EBF5CE}
+	EndGlobalSection
+EndGlobal
