@@ -30,33 +30,44 @@ namespace OcrSharp.Service
             _configuration = configuration;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(string fullFileName)
+        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory)
         {
-            await ProcessImageForOcr(fullFileName);
+            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream());
+            file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
+            return file;
+        }
 
+        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream)
+        {
+            var stResult = await ImageForOcr(stream);
+            return await ProcessOcrAsync(stResult);
+        }
+
+        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream)
+        {
             string tessDataPath = _configuration["Tesseract:tessDataFolder"];
-            using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.Default))
+            using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
             {
-                var image = Pix.LoadFromFile(fullFileName);
+                var image = Pix.LoadFromMemory(await stream.StreamToArrayAsync());
                 using (var page = engine.Process(image, PageSegMode.AutoOsd))
                 {
                     var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
 
                     return new InMemoryFile
                     {
-                        FileName = $"{Path.GetFileNameWithoutExtension(fullFileName)}.txt",
                         Content = Encoding.UTF8.GetBytes(ocrResult)
                     };
                 }
             }
         }
 
-        private Task DeskewAsync(string fileName, double maxSkew = 2)
+        private async Task<Stream> ProcessDeskewAsync(Bitmap bitmap, double maxSkew = 2)
         {
             Image<Gray, byte> rotatedImage = null;
-            using (Bitmap bmp = new Bitmap(fileName))
+            var stream = new MemoryStream();
+            using (bitmap)
             {
-                using (var image = bmp.ToImage<Gray, byte>())
+                using (var image = bitmap.ToImage<Gray, byte>())
                 {
                     rotatedImage = image.CopyBlank();
                     CvInvoke.FastNlMeansDenoising(image, rotatedImage);
@@ -116,24 +127,37 @@ namespace OcrSharp.Service
                 }
             }
 
-            File.Delete(fileName);
-            rotatedImage.Convert<Bgr, byte>().Save(fileName);
-            return Task.CompletedTask;
+            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+            stream.Position = 0;
+            return await Task.FromResult(stream);
         }
 
-        private async Task ProcessImageForOcr(string fileName)
+        private async Task<Stream> DeskewAsync(Stream stream, double maxSkew = 2)
         {
-            await DeskewAsync(fileName);
+            Bitmap bmp = new Bitmap(stream);
+            return await ProcessDeskewAsync(bmp, maxSkew);
+        }
+        private async Task<Stream> DeskewAsync(string fileName, double maxSkew = 2)
+        {
+            Bitmap bmp = new Bitmap(fileName);
+            return await ProcessDeskewAsync(bmp, maxSkew);            
+        }
 
+        private async Task<Stream> ImageForOcr(Stream stream)
+        {
+            return await ProcessImageForOcr(await DeskewAsync(stream));
+        }
+
+        private async Task<Stream> ProcessImageForOcr(Stream stream)
+        {
             Image<Gray, byte> processedImage = null;
-            using (Bitmap bmp = new Bitmap(fileName))
+            using (Bitmap bmp = new Bitmap(stream))
                 processedImage = RemoveNoiseAndSmooth(bmp);
 
-            if (processedImage != null)
-            {
-                File.Delete(fileName);
-                processedImage.Save(fileName);
-            }
+            var ms = new MemoryStream();
+            processedImage.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            ms.Position = 0;
+            return await Task.FromResult(ms);
         }
 
         private Image<Gray, byte> ImageSmoothening(Image<Gray, byte> image)
@@ -177,7 +201,7 @@ namespace OcrSharp.Service
         private double ToDegree(double radian)
         {
             return (180 / Math.PI) * radian;
-        }    
+        }
 
         public async Task<InMemoryFile> TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5)
         {

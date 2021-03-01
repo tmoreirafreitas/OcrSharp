@@ -15,10 +15,12 @@ namespace OcrSharp.Service
     public class PdfFileService : IPdfFileService
     {
         private readonly IFileUtilityService _fileUtilityService;
+        private readonly IOcrFileService _ocrFileService;
 
-        public PdfFileService(IFileUtilityService fileUtilityService)
+        public PdfFileService(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService)
         {
             _fileUtilityService = fileUtilityService;
+            _ocrFileService = ocrFileService;
         }
 
         public async Task<InMemoryFile> ConvertMultiplePdfToImageAsync(IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken))
@@ -47,16 +49,48 @@ namespace OcrSharp.Service
 
         public async Task<PdfPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
                 using var document = UglyToad.PdfPig.PdfDocument.Open(file.Content);
+                InMemoryFile inMemoryFile;
                 var sb = new StringBuilder();
                 var pdfPage = document.GetPage(pageNumber);
                 var works = pdfPage.GetWords();
-
-                sb.Append(string.Join(" ", works.Select(x => x.Text)).Replace("\r", "\r\n"));
+                if (works.Any())
+                    sb.Append(string.Join(" ", works.Select(x => x.Text)).Replace("\r", "\r\n"));
+                else
+                {
+                    var image = pdfPage.GetImages().FirstOrDefault();
+                    if (image != null)
+                    {
+                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.RawBytes.ToArray()));
+                        sb.Append(Encoding.UTF8.GetString(inMemoryFile.Content));
+                    }
+                }
                 return new PdfPage(pageNumber, sb.ToString());
             }, cancellationToken);
+        }
+
+        public async Task<PdfFile> ExtractTextFromPdf(InMemoryFile file, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return await Task.Run(async () =>
+            {
+                var outputImagePath = string.Empty;
+
+                var pagesCount = 0;
+                using (var document = PdfDocument.Load(file.Content.ArrayToStream()))
+                    pagesCount = document.PageCount;
+
+                var pdf = new PdfFile(pagesCount, file.FileName);
+                for (var i = 1; i <= pagesCount; i++)
+                {
+                    var page = await ExtracTextFromPdfPageAsync(file, i, cancellationToken);
+                    if (page != null)
+                        pdf.Pages.Add(page);
+                }
+
+                return pdf;
+            });
         }
 
         /// <summary>

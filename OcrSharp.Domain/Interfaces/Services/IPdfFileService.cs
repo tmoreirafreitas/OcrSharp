@@ -12,5 +12,6 @@ namespace OcrSharp.Domain.Interfaces.Services
         Task<InMemoryFile> ConvertPdfPageToImageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken));
         Task<PdfPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken));
         Task<Stream> ConvertPdfFileToImagesAsync(InMemoryFile file);
+        Task<PdfFile> ExtractTextFromPdf(InMemoryFile file, CancellationToken cancellationToken = default(CancellationToken));
     }
 }

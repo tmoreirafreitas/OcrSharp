@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace OcrSharp.Domain.Entities
 {
@@ -13,6 +14,13 @@ namespace OcrSharp.Domain.Entities
             FileName = fileName;
             PagesNumber = pagesNumber;
             Pages = new List<PdfPage>();
+        }
+
+        public void ChangeFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName) || string.IsNullOrWhiteSpace(fileName))
+                throw new ArgumentException("filename can not be null or empty");
+            FileName = fileName;
         }
     }
 }
