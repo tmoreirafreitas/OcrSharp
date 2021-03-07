@@ -1,5 +1,7 @@
 # OcrSharp (Tesseract + EmguCV + .NET5)
-É uma aplicação Web API que é útil para ser reaproveitada em outros contextos. Forma de utilização facilitada vem com swagger para facilitar o entendimento das chamadas das funcionalidades desejadas as funcionalidades são:
+É uma aplicação Web API que é útil para ser reaproveitada em outros contextos. Forma de utilização facilitada, vem com swagger para facilitar o entendimento das chamadas das funcionalidades desejadas.
+
+As funcionalidades são:
 
 * Obter o texto de um arquivo (pdf).
 * Obter o texto de uma página do arquivo (pdf).
