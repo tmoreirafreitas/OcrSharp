@@ -8,13 +8,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace OcrSharp.Api.Controllers
 {
-
     [Route("api/file")]
     [Produces(MediaTypeNames.Application.Json)]
     [ApiController]
@@ -31,11 +31,11 @@ namespace OcrSharp.Api.Controllers
             _pdfFileService = pdfFileService;
         }
 
-        [HttpPut("image/create-ocr")]
+        [HttpPut("image/get-zipped-file-ocr-of-multiple-images")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ApplyOcrInImageAsync(IFormFileCollection fileCollection, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetZippedFileOcrOfMultipleImages(IFormFileCollection fileCollection, CancellationToken cancellationToken)
         {
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
@@ -59,16 +59,60 @@ namespace OcrSharp.Api.Controllers
                     FileName = file.FileName,
                     Content = await file.OpenReadStream().StreamToArrayAsync(cancellationToken)
                 };
-                
+
                 filesToZip.Add(await _ocrService.ApplyOcrAsync(inMemory));
             }
 
             var zipFile = await _fileUtilityService.GetZipArchive(filesToZip, cancellationToken);
             var filename = $"OCR_RESULT_{DateTime.Now.GetDateNowEngFormat()}.zip";
-            return ConfigurationFileStreamToDownload(zipFile, filename, "application/zip");
+            var result = ConfigurationFileStreamToDownload(zipFile, filename, "application/zip");
+
+            return result;
         }
 
-        [HttpPut("pdf/convert-multiple-to-png")]
+        [HttpPut("image/get-data-ocr-of-multiple-images")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetDataOcrOfMultipleImages(IFormFileCollection fileCollection, CancellationToken cancellationToken)
+        {
+            var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".tiff")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".jpeg")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".jpg")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".jpe")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".jfif")
+            && !Path.GetExtension(x.FileName.ToLower()).Equals(".png"));
+
+            if (filesNotSuport.Any())
+                return BadRequest($@"Há extensão de arquivo não suportado, os tipos suportados são: 
+                                    Bitmap(*.bmp), JPEG(*.jpeg; *.jpg; *.jpe; *.jfif), TIFF(*.tif; *.tiff) e PNG(*.png)");
+
+            var data = new List<DocumentFile>();
+            foreach (var file in fileCollection)
+            {
+                var inMemory = new InMemoryFile()
+                {
+                    FileName = file.FileName,
+                    Content = await file.OpenReadStream().StreamToArrayAsync(cancellationToken)
+                };
+
+                var doc = new DocumentFile(1, file.FileName);
+                var result = await _ocrService.ApplyOcrAsync(inMemory);
+                var page = new DocumentPage(1, Encoding.UTF8.GetString(result.Content))
+                {
+                    Accuracy = result.Accuracy,
+                    RunTime = result.RunTime
+                };
+                doc.Pages.Add(page);
+                data.Add(doc);
+            }
+
+            return Ok(data);
+        }
+
+        [HttpPut("pdf/convert-multiple-to-tiff")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -78,26 +122,28 @@ namespace OcrSharp.Api.Controllers
             if (filesNotSuport.Any())
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            var filesToZip = new List<InMemoryFile>();
+            IEnumerable<InMemoryFile> filesToZip = new List<InMemoryFile>();
             foreach (var file in fileCollection)
             {
                 if (cancellationToken.IsCancellationRequested)
                     cancellationToken.ThrowIfCancellationRequested();
 
-                using var st = file.OpenReadStream();
-                filesToZip.Add(new InMemoryFile
+                using (var st = file.OpenReadStream())
                 {
-                    FileName = file.FileName,
-                    Content = await st.StreamToArrayAsync(cancellationToken)
-                });
+                    ((IList<InMemoryFile>)filesToZip).Add(new InMemoryFile
+                    {
+                        FileName = file.FileName,
+                        Content = await st.StreamToArrayAsync(cancellationToken)
+                    });
+                }
             }
 
-            var archive = await _pdfFileService.ConvertMultiplePdfToImageAsync(filesToZip, cancellationToken);
+            var archive = _pdfFileService.ConvertMultiplePdfToImage(ref filesToZip, cancellationToken);
             var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
             return ConfigurationFileStreamToDownload(archive.Content.ArrayToStream(), filename, "application/zip");
         }
 
-        [HttpPut("pdf/convert-page-to-png/{page}")]
+        [HttpPut("pdf/convert-page-to-tiff/{page}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -106,15 +152,17 @@ namespace OcrSharp.Api.Controllers
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
+            using (var st = inputFile.OpenReadStream())
             {
-                FileName = inputFile.FileName,
-                Content = await st.StreamToArrayAsync(cancellationToken)
-            };
+                var inMemory = new InMemoryFile()
+                {
+                    FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
+                    Content = await st.StreamToArrayAsync(cancellationToken)
+                };
 
-            var fileImage = await _pdfFileService.ConvertPdfPageToImageAsync(inMemory, page, cancellationToken);
-            return ConfigurationFileStreamToDownload(fileImage.Content.ArrayToStream(), fileImage.FileName, "image/png");
+                var fileImage = _pdfFileService.ConvertPdfPageToImage(inMemory, page);
+                return ConfigurationFileStreamToDownload(fileImage.Content.ArrayToStream(), fileImage.FileName, "image/png");
+            }
         }
 
         [HttpPut("pdf/extract-text-by-page/{pageNumber}")]
@@ -126,16 +174,18 @@ namespace OcrSharp.Api.Controllers
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
+            using (var st = inputFile.OpenReadStream())
             {
-                FileName = inputFile.FileName,
-                Content = await st.StreamToArrayAsync(cancellationToken)
-            };
+                var inMemory = new InMemoryFile()
+                {
+                    FileName = inputFile.FileName,
+                    Content = await st.StreamToArrayAsync(cancellationToken)
+                };
 
-            var page = await _pdfFileService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, cancellationToken);
-            var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
-            return Ok(textResult);
+                var page = await _pdfFileService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, cancellationToken);
+                var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
+                return Ok(textResult);
+            }
         }
 
         [HttpPut("pdf/extract-text")]
@@ -147,16 +197,18 @@ namespace OcrSharp.Api.Controllers
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
+            using (var st = inputFile.OpenReadStream())
             {
-                FileName = inputFile.FileName,
-                Content = await st.StreamToArrayAsync(cancellationToken)
-            };
+                var inMemory = new InMemoryFile()
+                {
+                    FileName = inputFile.FileName,
+                    Content = await st.StreamToArrayAsync(cancellationToken)
+                };
 
-            var pdf = await _pdfFileService.ExtractTextFromPdf(inMemory, cancellationToken);
-            return Ok(pdf);
-        }        
+                var pdf = await _pdfFileService.ExtractTextFromPdf(inMemory, cancellationToken);
+                return Ok(pdf);
+            }
+        }
 
         private FileStreamResult ConfigurationFileStreamToDownload(Stream file, string fileName, string contentType)
         {

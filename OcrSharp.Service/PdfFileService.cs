@@ -23,74 +23,81 @@ namespace OcrSharp.Service
             _ocrFileService = ocrFileService;
         }
 
-        public async Task<InMemoryFile> ConvertMultiplePdfToImageAsync(IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken))
+        public InMemoryFile ConvertMultiplePdfToImage(ref IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken))
         {
             var filesToZip = new List<InMemoryFile>();
 
             foreach (var file in fileCollection)
             {
-                var fileZipStream = await ConvertPdfFileToImagesAsync(file);
+                var fileZipStream = ConvertPdfFileToImages(file);
 
                 filesToZip.Add(new InMemoryFile
                 {
                     FileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_Images_Results_{DateTime.Now.GetDateNowEngFormat()}.zip",
-                    Content = await fileZipStream.StreamToArrayAsync(cancellationToken)
+                    Content = fileZipStream.StreamToArrayAsync(cancellationToken).Result
                 });
             }
 
-            var zipFile = await _fileUtilityService.GetZipArchive(filesToZip);
+            var zipFile = _fileUtilityService.GetZipArchive(filesToZip).Result;
             var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
             return new InMemoryFile
             {
                 FileName = filename,
-                Content = await zipFile.StreamToArrayAsync(cancellationToken)
+                Content = zipFile.StreamToArrayAsync(cancellationToken).Result
             };
         }
 
-        public async Task<PdfPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return await Task.Run(async () =>
+            using (var document = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
-                using var document = UglyToad.PdfPig.PdfDocument.Open(file.Content);
-                InMemoryFile inMemoryFile;
+                InMemoryFile inMemoryFile = null;
                 var sb = new StringBuilder();
                 var pdfPage = document.GetPage(pageNumber);
                 var works = pdfPage.GetWords();
+                bool applyedOcr = false;
                 if (works.Any())
                     sb.Append(string.Join(" ", works.Select(x => x.Text)).Replace("\r", "\r\n"));
                 else
                 {
-                    var image = pdfPage.GetImages().FirstOrDefault();
+                    var image = ConvertPdfPageToImage(file, pageNumber);
                     if (image != null)
                     {
-                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.RawBytes.ToArray()));
+                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.Content));
                         sb.Append(Encoding.UTF8.GetString(inMemoryFile.Content));
+                        applyedOcr = true;
                     }
                 }
-                return new PdfPage(pageNumber, sb.ToString());
-            }, cancellationToken);
+                var page = new DocumentPage(pageNumber, sb.ToString(), applyedOcr);
+                if(page.AppliedOcr)
+                {
+                    page.Accuracy = inMemoryFile.Accuracy;
+                }
+                return page;
+            }
         }
 
-        public async Task<PdfFile> ExtractTextFromPdf(InMemoryFile file, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return await Task.Run(async () =>
+            using (var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
-                var outputImagePath = string.Empty;
+                var pagesCount = doc.GetPages().Count();
+                var pdf = new DocumentFile(pagesCount, file.FileName);
+                var index = 0;
+                var pages = doc.GetPages().ToAsyncEnumerable();
 
-                var pagesCount = 0;
-                using (var document = PdfDocument.Load(file.Content.ArrayToStream()))
-                    pagesCount = document.PageCount;
-
-                var pdf = new PdfFile(pagesCount, file.FileName);
-                for (var i = 1; i <= pagesCount; i++)
+                object listLock = new object();
+                await pages.AsyncParallelForEach(async entry =>
                 {
-                    var page = await ExtracTextFromPdfPageAsync(file, i, cancellationToken);
-                    if (page != null)
-                        pdf.Pages.Add(page);
-                }
+                    ++index;
+                    var pdfPage = await ExtracTextFromPdfPageAsync(file, index);
+                    lock (listLock)
+                        pdf.Pages.Add(pdfPage);
+                },
+                    Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0)));
 
                 return pdf;
-            });
+            }
         }
 
         /// <summary>
@@ -98,28 +105,36 @@ namespace OcrSharp.Service
         /// </summary>
         /// <param name="pdfFilename"></param>
         /// <returns>return the zipped image files</returns>
-        public async Task<Stream> ConvertPdfFileToImagesAsync(InMemoryFile file)
+        public Stream ConvertPdfFileToImages(InMemoryFile file)
         {
-            return await Task.Run(async () =>
+            ICollection<InMemoryFile> files = new List<InMemoryFile>();
+            var outputImagePath = string.Empty;
+
+            var pagesCount = 0;
+            using (var document = PdfDocument.Load(file.Content.ArrayToStream()))
+                pagesCount = document.PageCount;
+
+            InMemoryFile fileInMemory = null;
+            object listLock = new object();
+            Parallel.For(1, pagesCount, new ParallelOptions
             {
-                ICollection<InMemoryFile> files = new List<InMemoryFile>();
-                var outputImagePath = string.Empty;
-
-                var pagesCount = 0;
-                using (var document = PdfDocument.Load(file.Content.ArrayToStream()))
-                    pagesCount = document.PageCount;
-
-                InMemoryFile fileInMemory = null;
-
-                for (var i = 1; i <= pagesCount; i++)
-                {
-                    fileInMemory = await ConvertPdfPageToImageAsync(file, i);
-                    if (fileInMemory != null)
+                // multiply the count because a processor has 2 cores
+                MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0))
+            }, i =>
+            {
+                fileInMemory = ConvertPdfPageToImage(file, i);
+                if (fileInMemory != null)
+                    lock (listLock)
                         files.Add(fileInMemory);
-                }
-
-                return await _fileUtilityService.GetZipArchive(files);
             });
+            //for (var i = 1; i <= pagesCount; i++)
+            //{
+            //    fileInMemory = await ConvertPdfPageToImageAsync(file, i);
+            //    if (fileInMemory != null)
+            //        files.Add(fileInMemory);
+            //}
+
+            return _fileUtilityService.GetZipArchive(files).Result;
         }
 
         /// <summary>
@@ -128,40 +143,39 @@ namespace OcrSharp.Service
         /// <param name="fileName"></param>
         /// <param name="pagina"></param>
         /// <returns>returns the page of the pdf file converted to png image</returns>
-        public async Task<InMemoryFile> ConvertPdfPageToImageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken))
+        public InMemoryFile ConvertPdfPageToImage(InMemoryFile file, int pageNumber)
         {
-            return await Task.Run(() =>
+            var xDpi = 300; //set the x DPI
+            var yDpi = 300; //set the y DPI
+
+            InMemoryFile fileInMemory = null;
+
+            var pdfFilename = $"{ Path.GetFileNameWithoutExtension(file.FileName)}_Pagina_{pageNumber:D3}.tiff";
+
+            using (var pigDocument = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
-                var xDpi = 300; //set the x DPI
-                var yDpi = 300; //set the y DPI
-
-                InMemoryFile fileInMemory = null;
-
-                var pdfFilename = $"{ Path.GetFileNameWithoutExtension(file.FileName)}_Pagina_{pageNumber:D3}.png";
-
-                using (var pigDocument = UglyToad.PdfPig.PdfDocument.Open(file.Content))
+                if (!string.IsNullOrEmpty(pigDocument.GetPage(pageNumber).Text) || !string.IsNullOrWhiteSpace(pigDocument.GetPage(pageNumber).Text))
                 {
-                    if (!string.IsNullOrEmpty(pigDocument.GetPage(pageNumber).Text) || !string.IsNullOrWhiteSpace(pigDocument.GetPage(pageNumber).Text))
+                    var image = pigDocument.GetPage(pageNumber).GetImages().FirstOrDefault();
+                    if (image != null)
                     {
-                        var image = pigDocument.GetPage(pageNumber).GetImages().FirstOrDefault();
-                        if (image != null)
+                        fileInMemory = new InMemoryFile
                         {
-                            fileInMemory = new InMemoryFile
-                            {
-                                FileName = pdfFilename,
-                                Content = image.RawBytes.ToArray()
-                            };
-                        }
+                            FileName = pdfFilename,
+                            Content = image.RawBytes.ToArray()
+                        };
                     }
                 }
+            }
 
 
-                if (fileInMemory == null)
+            if (fileInMemory == null)
+            {
+                using (var document = PdfDocument.Load(file.Content.ArrayToStream()))
+                using (var image = document.Render(pageNumber - 1, xDpi, yDpi, PdfRenderFlags.CorrectFromDpi))
+                using (var stream = new MemoryStream())
                 {
-                    using var document = PdfDocument.Load(file.Content.ArrayToStream());
-                    using var image = document.Render(pageNumber - 1, xDpi, yDpi, true);
-                    using var stream = new MemoryStream();
-                    image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                    image.Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
                     stream.Position = 0;
                     fileInMemory = new InMemoryFile
                     {
@@ -169,9 +183,9 @@ namespace OcrSharp.Service
                         Content = stream.ToArray()
                     };
                 }
+            }
 
-                return fileInMemory;
-            }, cancellationToken);
+            return fileInMemory;
         }
     }
 }

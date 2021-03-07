@@ -9,6 +9,7 @@ using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
@@ -32,14 +33,22 @@ namespace OcrSharp.Service
 
         public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory)
         {
+            Stopwatch stopWatch = new Stopwatch();
+            stopWatch.Start();
             var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream());
             file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
+            stopWatch.Stop();
+            TimeSpan ts = stopWatch.Elapsed;
+            string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+            ts.Hours, ts.Minutes, ts.Seconds,
+            ts.Milliseconds / 10);
+            file.RunTime = elapsedTime;
             return file;
         }
 
         public async Task<InMemoryFile> ApplyOcrAsync(Stream stream)
         {
-            var stResult = await ImageForOcr(stream);
+            var stResult = ImageForOcr(ref stream);
             return await ProcessOcrAsync(stResult);
         }
 
@@ -55,13 +64,15 @@ namespace OcrSharp.Service
 
                     return new InMemoryFile
                     {
-                        Content = Encoding.UTF8.GetBytes(ocrResult)
+                        Content = Encoding.UTF8.GetBytes(ocrResult),
+                        Accuracy = page.GetMeanConfidence(),
+                        AppliedOcr = true
                     };
                 }
             }
         }
 
-        private async Task<Stream> ProcessDeskewAsync(Bitmap bitmap, double maxSkew = 2)
+        private Stream ProcessDeskew(ref Bitmap bitmap, double maxSkew = 2)
         {
             Image<Gray, byte> rotatedImage = null;
             var stream = new MemoryStream();
@@ -78,14 +89,22 @@ namespace OcrSharp.Service
                     var wearableAngles = new List<double>();
                     var lines = CvInvoke.HoughLinesP(rotatedImage, 1, Math.PI / 180, 100, minLineLength: image.Width / 12, maxGap: image.Width / 150);
 
-                    foreach (var line in lines)
+                    object listLock = new object();
+                    Parallel.ForEach(lines, new ParallelOptions
+                    {
+                        // multiply the count because a processor has 2 cores
+                        MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0))
+                    }, line =>
                     {
                         var x1 = line.P1.X;
                         var y1 = line.P1.Y;
                         var x2 = line.P2.X;
                         var y2 = line.P2.Y;
-                        allAngles.Add(Math.Atan2(y2 - y1, x2 - x1));
-                    }
+                        lock (listLock)
+                        {
+                            allAngles.Add(Math.Atan2(y2 - y1, x2 - x1));
+                        }
+                    });
 
                     //Se a maioria de nossas linhas são verticais, esta provavelmente é uma imagem de paisagem.
                     var landscape = allAngles.Where(angle => Math.Abs(angle) > (Math.PI / 4)).Sum() > allAngles.Count / 2;
@@ -124,70 +143,83 @@ namespace OcrSharp.Service
                         CvInvoke.GetRotationMatrix2D(new PointF(image.Width / 2, image.Height / 2), angle, 1.0, rotationMatrix);
                         CvInvoke.WarpAffine(image, rotatedImage, rotationMatrix, image.Size, Inter.Cubic, borderMode: BorderType.Replicate);
                     }
+
+                    allAngles.Clear();
+                    wearableAngles.Clear();
+                    lines = null;
+                    allAngles = null;
+                    wearableAngles = null;
                 }
             }
 
-            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
             stream.Position = 0;
-            return await Task.FromResult(stream);
+            rotatedImage.Dispose();
+            rotatedImage = null;
+            return stream;
         }
 
-        private async Task<Stream> DeskewAsync(Stream stream, double maxSkew = 2)
+        private Stream Deskew(ref Stream stream, double maxSkew = 2)
         {
             Bitmap bmp = new Bitmap(stream);
-            return await ProcessDeskewAsync(bmp, maxSkew);
+            return ProcessDeskew(ref bmp, maxSkew);
         }
-        private async Task<Stream> DeskewAsync(string fileName, double maxSkew = 2)
+        private Stream Deskew(string fileName, double maxSkew = 2)
         {
             Bitmap bmp = new Bitmap(fileName);
-            return await ProcessDeskewAsync(bmp, maxSkew);            
+            return ProcessDeskew(ref bmp, maxSkew);
         }
 
-        private async Task<Stream> ImageForOcr(Stream stream)
+        private Stream ImageForOcr(ref Stream stream)
         {
-            return await ProcessImageForOcr(await DeskewAsync(stream));
+            var st = ProcessImageForOcr(ref stream);
+            return Deskew(ref st);
         }
 
-        private async Task<Stream> ProcessImageForOcr(Stream stream)
+        private Stream ProcessImageForOcr(ref Stream stream)
         {
             Image<Gray, byte> processedImage = null;
             using (Bitmap bmp = new Bitmap(stream))
                 processedImage = RemoveNoiseAndSmooth(bmp);
 
             var ms = new MemoryStream();
-            processedImage.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            processedImage.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
             ms.Position = 0;
-            return await Task.FromResult(ms);
+            processedImage.Dispose();
+            return ms;
         }
 
-        private Image<Gray, byte> ImageSmoothening(Image<Gray, byte> image)
+        private Image<Gray, byte> ImageSmoothening(ref Image<Gray, byte> image)
         {
-            const int binaryThresold = 127;
+            const int binaryThreshold = 127;
             var processedImage = image.CopyBlank();
 
-            CvInvoke.Threshold(image, processedImage, binaryThresold, 255, ThresholdType.Binary);
+            CvInvoke.Threshold(image, processedImage, binaryThreshold, 255, ThresholdType.Binary);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
-            CvInvoke.GaussianBlur(processedImage, processedImage, new Size(3, 3), 0);
+            CvInvoke.GaussianBlur(processedImage, processedImage, new Size(1, 1), 0);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
             return processedImage;
         }
 
-        private Image<Gray, byte> RemoveNoiseAndSmooth(Bitmap bmp, double factor = 1.3)
+        private Image<Gray, byte> RemoveNoiseAndSmooth(Bitmap bmp)
         {
+            const int imageSize = 1800;
             Image<Gray, byte> image = bmp.ToImage<Gray, byte>();
-            image = image.Resize(factor, Inter.Cubic);
+            var factor = Math.Max(1, imageSize / image.Width);
+            image.Resize(image.Width * factor, image.Height * factor, Inter.Cubic, true);
 
             var filtered = image.CopyBlank();
             var opening = image.CopyBlank();
             var closing = image.CopyBlank();
 
-            CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.GaussianC, ThresholdType.Binary, 85, 11);
+            //CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.GaussianC, ThresholdType.Binary, 85, 11);           
 
-            var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(3, 3), new Point(-1, -1));
-            CvInvoke.MorphologyEx(filtered, opening, MorphOp.Open, kernel, new Point(-1, -1), 1, BorderType.Constant, new MCvScalar(1.0));
-            CvInvoke.MorphologyEx(opening, closing, MorphOp.Close, kernel, new Point(-1, -1), 1, BorderType.Constant, new MCvScalar(1.0));
+            CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.MeanC, ThresholdType.Binary, 41, 3);
+            var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(1, 1), new Point(-1, -1));
+            CvInvoke.MorphologyEx(filtered, opening, MorphOp.Open, kernel, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(1.0));
+            CvInvoke.MorphologyEx(opening, closing, MorphOp.Close, kernel, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(1.0));
 
-            var imageSmoothening = ImageSmoothening(closing);
+            var imageSmoothening = ImageSmoothening(ref closing);
             var orImage = image.CopyBlank();
             CvInvoke.BitwiseOr(imageSmoothening, closing, orImage);
             return orImage;
@@ -203,9 +235,9 @@ namespace OcrSharp.Service
             return (180 / Math.PI) * radian;
         }
 
-        public async Task<InMemoryFile> TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5)
+        public InMemoryFile TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5)
         {
-            await DeskewAsync(fullFileName);
+            Deskew(fullFileName);
             InMemoryFile file = null;
             using (var bmp = new Bitmap(fullFileName))
             {
@@ -251,7 +283,7 @@ namespace OcrSharp.Service
                     var sortedBBoxes = bboxList.OrderBy(x => x.Y).ThenBy(y => y.X).ToList();
 
                     var folder = Path.GetDirectoryName(fullFileName);
-                    imgTable.Save(Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(fullFileName)}_processed.png"));
+                    imgTable.Save(Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(fullFileName)}_processed.tiff"));
                     using (var workbook = new XLWorkbook())
                     {
                         var worksheet = workbook.Worksheets.Add("Outputs");
@@ -270,7 +302,7 @@ namespace OcrSharp.Service
                             imgTable.ROI = rect;
 
                             string tessDataPath = DownloadAndExtractLanguagePack();
-                            using (var engine = new TesseractEngine(tessDataPath, "eng", EngineMode.TesseractOnly))
+                            using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
                             {
                                 engine.DefaultPageSegMode = PageSegMode.SingleBlock;
                                 using (var page = engine.Process(Pix.LoadFromMemory(imgTable.Copy().ToJpegData())))

@@ -52,11 +52,8 @@ namespace OcrSharp.Api
             app.UseStaticFiles();
             app.UseMiddleware(typeof(RequestMiddliware));
             app.UseResponseCompression();
-            app.UseHttpsRedirection();
             app.UseRouting();
-
             app.UseAuthorization();
-
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
