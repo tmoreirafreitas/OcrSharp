@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Domain.Interfaces.Services
 {
-    public interface IPdfFileService : IDomainService
+    public interface IDocumentFileService : IDomainService
     {
         InMemoryFile ConvertMultiplePdfToImage(ref IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken));
         InMemoryFile ConvertPdfPageToImage(InMemoryFile file, int pageNumber);

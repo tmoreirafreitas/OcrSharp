@@ -12,12 +12,12 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Service
 {
-    public class PdfFileService : IPdfFileService
+    public class DocumentFileService : IDocumentFileService
     {
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IOcrFileService _ocrFileService;
 
-        public PdfFileService(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService)
+        public DocumentFileService(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService)
         {
             _fileUtilityService = fileUtilityService;
             _ocrFileService = ocrFileService;
@@ -29,6 +29,9 @@ namespace OcrSharp.Service
 
             foreach (var file in fileCollection)
             {
+                if (cancellationToken.IsCancellationRequested)
+                    cancellationToken.ThrowIfCancellationRequested();
+
                 var fileZipStream = ConvertPdfFileToImages(file);
 
                 filesToZip.Add(new InMemoryFile
@@ -118,7 +121,7 @@ namespace OcrSharp.Service
             object listLock = new object();
             Parallel.For(1, pagesCount, new ParallelOptions
             {
-                // multiply the count because a processor has 2 cores
+                // multiply the count because a processor can have 2 cores
                 MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0))
             }, i =>
             {
@@ -127,12 +130,6 @@ namespace OcrSharp.Service
                     lock (listLock)
                         files.Add(fileInMemory);
             });
-            //for (var i = 1; i <= pagesCount; i++)
-            //{
-            //    fileInMemory = await ConvertPdfPageToImageAsync(file, i);
-            //    if (fileInMemory != null)
-            //        files.Add(fileInMemory);
-            //}
 
             return _fileUtilityService.GetZipArchive(files).Result;
         }

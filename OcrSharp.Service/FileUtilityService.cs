@@ -124,6 +124,9 @@ namespace OcrSharp.Service
                 {
                     foreach (var file in files)
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                            cancellationToken.ThrowIfCancellationRequested();
+
                         var zipArchiveEntry = archive.CreateEntry(Path.GetFileName(file.FileName), CompressionLevel.Fastest);
                         using (var zipStream = zipArchiveEntry.Open())
                             zipStream.Write(file.Content, 0, file.Content.Length);

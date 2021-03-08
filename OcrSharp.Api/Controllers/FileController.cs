@@ -22,9 +22,9 @@ namespace OcrSharp.Api.Controllers
     {
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IOcrFileService _ocrService;
-        private readonly IPdfFileService _pdfFileService;
+        private readonly IDocumentFileService _pdfFileService;
 
-        public FileController(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService, IPdfFileService pdfFileService)
+        public FileController(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService, IDocumentFileService pdfFileService)
         {
             _fileUtilityService = fileUtilityService;
             _ocrService = ocrFileService;
