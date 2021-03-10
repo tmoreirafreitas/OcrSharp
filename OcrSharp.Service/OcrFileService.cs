@@ -73,7 +73,7 @@ namespace OcrSharp.Service
             }
         }
 
-        private Stream ProcessDeskew(ref Bitmap bitmap, double maxSkew = 2)
+        private Stream ProcessDeskew(ref Bitmap bitmap)
         {
             using (var img = bitmap.ToImage<Gray, byte>())
             using (var gray = img.ThresholdBinaryInv(new Gray(200), new Gray(255)).Dilate(5))
@@ -104,15 +104,15 @@ namespace OcrSharp.Service
             }            
         }
 
-        private Stream Deskew(ref Stream stream, double maxSkew = 2)
+        private Stream Deskew(ref Stream stream)
         {
             Bitmap bmp = new Bitmap(stream);
-            return ProcessDeskew(ref bmp, maxSkew);
+            return ProcessDeskew(ref bmp);
         }
-        private Stream Deskew(string fileName, double maxSkew = 2)
+        private Stream Deskew(string fileName)
         {
             Bitmap bmp = new Bitmap(fileName);
-            return ProcessDeskew(ref bmp, maxSkew);
+            return ProcessDeskew(ref bmp);
         }
 
         private Stream ImageForOcr(ref Stream stream)
