@@ -11,15 +11,15 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "2 - Domain", "2 - Domain", 
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "3 - Infra", "3 - Infra", "{832A8DF0-FB3A-4EAA-BC52-96EB46BEEAE9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Domain", "OcrSharp.Domain\OcrSharp.Domain.csproj", "{9A724844-7929-4F30-9D0E-ED745439C953}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OcrSharp.Domain", "OcrSharp.Domain\OcrSharp.Domain.csproj", "{9A724844-7929-4F30-9D0E-ED745439C953}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Service", "OcrSharp.Service\OcrSharp.Service.csproj", "{C94CCB0E-F7B9-45D1-8CED-181734C1242F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OcrSharp.Service", "OcrSharp.Service\OcrSharp.Service.csproj", "{C94CCB0E-F7B9-45D1-8CED-181734C1242F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Api", "OcrSharp.Api\OcrSharp.Api.csproj", "{74B81BA1-1E1F-4823-846D-18E0E0E0780E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OcrSharp.Api", "OcrSharp.Api\OcrSharp.Api.csproj", "{74B81BA1-1E1F-4823-846D-18E0E0E0780E}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "3.1 - CrossCutting", "3.1 - CrossCutting", "{8E7D42A5-BE32-4281-B0EF-31F6A54D2B90}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OcrSharp.Infra.CrossCutting.IoC", "OcrSharp.Infra.CrossCutting.IoC\OcrSharp.Infra.CrossCutting.IoC.csproj", "{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OcrSharp.Infra.CrossCutting.IoC", "OcrSharp.Infra.CrossCutting.IoC\OcrSharp.Infra.CrossCutting.IoC.csproj", "{CCC95FF5-87F9-42AF-A636-FC80BD5AAA38}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

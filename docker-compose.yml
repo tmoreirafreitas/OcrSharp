@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  ocrsharp.api:
+    image: ${DOCKER_REGISTRY-}ocrsharpapi
+    build:
+      context: .
+      dockerfile: OcrSharp.Api/Dockerfile

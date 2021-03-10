@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using OcrSharp.Api.Setup;
 using OcrSharp.Infra.CrossCutting.IoC.Extensions;
+using Swashbuckle.AspNetCore.SwaggerUI;
 
 namespace OcrSharp.Api
 {
@@ -43,15 +44,23 @@ namespace OcrSharp.Api
             loggerFactory.AddLog4Net("log4net.config");
 
             if (env.IsDevelopment())
-            {
-                app.UseDeveloperExceptionPage();
-                app.UseSwagger();
-                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "OcrSharp.Api v1"));
-            }
+                app.UseDeveloperExceptionPage();               
+            else
+                app.UseStatusCodePages();
 
             app.UseStaticFiles();
-            app.UseMiddleware(typeof(RequestMiddliware));
             app.UseResponseCompression();
+
+            app.UseSwagger();
+            app.UseSwaggerUI(c =>
+            {
+                c.RoutePrefix = "swagger";
+                c.SwaggerEndpoint("v1/swagger.json", "OcrSharp.Api v1");
+                c.DocumentTitle = "OCR SHARP API Documentation";
+                c.DocExpansion(DocExpansion.None);
+            });
+            
+            app.UseMiddleware(typeof(RequestMiddliware));            
             app.UseRouting();
             app.UseAuthorization();
             app.UseEndpoints(endpoints =>

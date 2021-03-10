@@ -12,9 +12,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -31,12 +29,21 @@ namespace OcrSharp.Service
             _configuration = configuration;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory)
+        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, bool bestOcuracy = false)
+        {           
+            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream(), bestOcuracy);
+            file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";           
+            return file;
+        }
+
+        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream, bool bestOcuracy = false)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
-            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream());
-            file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
+
+            var stResult = ImageForOcr(ref stream);
+            var file = await ProcessOcrAsync(stResult, bestOcuracy);
+
             stopWatch.Stop();
             TimeSpan ts = stopWatch.Elapsed;
             string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
@@ -46,22 +53,16 @@ namespace OcrSharp.Service
             return file;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream)
+        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream, bool bestOcuracy = false)
         {
-            var stResult = ImageForOcr(ref stream);
-            return await ProcessOcrAsync(stResult);
-        }
+            string tessDataPath = bestOcuracy ? _configuration["Tesseract:tessDataBest"] : _configuration["Tesseract:tessDataFast"];
 
-        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream)
-        {
-            string tessDataPath = _configuration["Tesseract:tessDataFolder"];
-            using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
+            using (var engine = new TesseractEngine(tessDataPath, "por", EngineMode.Default))
             {
-                var image = Pix.LoadFromMemory(await stream.StreamToArrayAsync());
+                using (var image = Pix.LoadFromMemory(await stream.StreamToArrayAsync()))
                 using (var page = engine.Process(image, PageSegMode.AutoOsd))
                 {
                     var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
-
                     return new InMemoryFile
                     {
                         Content = Encoding.UTF8.GetBytes(ocrResult),
@@ -74,89 +75,33 @@ namespace OcrSharp.Service
 
         private Stream ProcessDeskew(ref Bitmap bitmap, double maxSkew = 2)
         {
-            Image<Gray, byte> rotatedImage = null;
-            var stream = new MemoryStream();
-            using (bitmap)
+            using (var img = bitmap.ToImage<Gray, byte>())
+            using (var gray = img.ThresholdBinaryInv(new Gray(200), new Gray(255)).Dilate(5))
             {
-                using (var image = bitmap.ToImage<Gray, byte>())
+                using (VectorOfPoint points = new VectorOfPoint())
                 {
-                    rotatedImage = image.CopyBlank();
-                    CvInvoke.FastNlMeansDenoising(image, rotatedImage);
-                    CvInvoke.Threshold(image, rotatedImage, 127, 255, ThresholdType.BinaryInv | ThresholdType.Otsu);
-                    rotatedImage = rotatedImage.Dilate(5);
-
-                    var allAngles = new List<double>();
-                    var wearableAngles = new List<double>();
-                    var lines = CvInvoke.HoughLinesP(rotatedImage, 1, Math.PI / 180, 100, minLineLength: image.Width / 12, maxGap: image.Width / 150);
-
-                    object listLock = new object();
-                    Parallel.ForEach(lines, new ParallelOptions
-                    {
-                        // multiply the count because a processor has 2 cores
-                        MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0))
-                    }, line =>
-                    {
-                        var x1 = line.P1.X;
-                        var y1 = line.P1.Y;
-                        var x2 = line.P2.X;
-                        var y2 = line.P2.Y;
-                        lock (listLock)
-                        {
-                            allAngles.Add(Math.Atan2(y2 - y1, x2 - x1));
-                        }
-                    });
-
-                    //Se a maioria de nossas linhas são verticais, esta provavelmente é uma imagem de paisagem.
-                    var landscape = allAngles.Where(angle => Math.Abs(angle) > (Math.PI / 4)).Sum() > allAngles.Count / 2;
-
-                    if (landscape)
-                    {
-                        wearableAngles = allAngles.Where(angle => ToRadian(90 - maxSkew) < Math.Abs(angle) && Math.Abs(angle) < ToRadian(90 + maxSkew)).ToList();
-                    }
-                    else
-                    {
-                        wearableAngles = allAngles.Where(angle => Math.Abs(angle) < ToRadian(maxSkew)).ToList();
-                    }
-
-                    var angle = 0.0;
-                    if (wearableAngles.Count > 5)
-                    {
-                        angle = ToDegree(wearableAngles.GetMedian());
-                    }
-
-                    if (landscape)
-                    {
-                        if (angle < 0)
-                        {
-                            CvInvoke.Rotate(image, rotatedImage, RotateFlags.Rotate90Clockwise);
-                            angle += 90;
-                        }
-                        else if (angle > 0)
-                        {
-                            CvInvoke.Rotate(image, rotatedImage, RotateFlags.Rotate90CounterClockwise);
-                            angle -= 90;
-                        }
-                    }
-
+                    CvInvoke.FindNonZero(gray, points);
+                    var minareaRect = CvInvoke.MinAreaRect(points);
                     using (var rotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1))
                     {
-                        CvInvoke.GetRotationMatrix2D(new PointF(image.Width / 2, image.Height / 2), angle, 1.0, rotationMatrix);
-                        CvInvoke.WarpAffine(image, rotatedImage, rotationMatrix, image.Size, Inter.Cubic, borderMode: BorderType.Replicate);
+                        using (var rotatedImage = img.CopyBlank())
+                        {
+                            if (minareaRect.Angle < -45)
+                            {
+                                minareaRect.Angle = 90 + minareaRect.Angle;
+                            }
+
+                            CvInvoke.GetRotationMatrix2D(minareaRect.Center, minareaRect.Angle, 1.0, rotationMatrix);
+                            CvInvoke.WarpAffine(img, rotatedImage, rotationMatrix, img.Size, Inter.Cubic, borderMode: BorderType.Replicate);
+
+                            var stream = new MemoryStream();
+                            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
+                            stream.Position = 0;
+                            return stream;
+                        }
                     }
-
-                    allAngles.Clear();
-                    wearableAngles.Clear();
-                    lines = null;
-                    allAngles = null;
-                    wearableAngles = null;
                 }
-            }
-
-            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
-            stream.Position = 0;
-            rotatedImage.Dispose();
-            rotatedImage = null;
-            return stream;
+            }            
         }
 
         private Stream Deskew(ref Stream stream, double maxSkew = 2)
@@ -225,17 +170,8 @@ namespace OcrSharp.Service
             return orImage;
         }
 
-        private double ToRadian(double degree)
-        {
-            return (Math.PI / 180) * degree;
-        }
-
-        private double ToDegree(double radian)
-        {
-            return (180 / Math.PI) * radian;
-        }
-
-        public InMemoryFile TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5)
+        public InMemoryFile TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, 
+            float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5, bool bestOcuracy = false)
         {
             Deskew(fullFileName);
             InMemoryFile file = null;
@@ -301,7 +237,7 @@ namespace OcrSharp.Service
 
                             imgTable.ROI = rect;
 
-                            string tessDataPath = DownloadAndExtractLanguagePack();
+                            string tessDataPath = bestOcuracy ? _configuration["Tesseract:tessDataBest"] : _configuration["Tesseract:tessDataFast"];
                             using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
                             {
                                 engine.DefaultPageSegMode = PageSegMode.SingleBlock;
@@ -385,34 +321,6 @@ namespace OcrSharp.Service
             }
 
             return list;
-        }
-
-        private static string DownloadAndExtractLanguagePack()
-        {
-            //Source path to the zip file
-            string langPackPath = "https://github.com/tesseract-ocr/tessdata/archive/3.04.00.zip";
-
-            string zipFileName = AppDomain.CurrentDomain.BaseDirectory + "\\tessdata.zip";
-            string tessDataFolder = AppDomain.CurrentDomain.BaseDirectory + "\\tessdata";
-
-            //Check and download the source file
-            if (!File.Exists(zipFileName))
-            {
-                using (WebClient client = new WebClient())
-                {
-                    client.DownloadFile(langPackPath, zipFileName);
-                }
-            }
-
-            //Extract the zip to tessdata folder
-            if (!Directory.Exists(tessDataFolder))
-            {
-                ZipFile.ExtractToDirectory(zipFileName, AppDomain.CurrentDomain.BaseDirectory);
-                var extractedDir = Directory.EnumerateDirectories(AppDomain.CurrentDomain.BaseDirectory).FirstOrDefault(x => x.Contains("tessdata"));
-                Directory.Move(extractedDir, tessDataFolder);
-            }
-
-            return tessDataFolder;
         }
     }
 }

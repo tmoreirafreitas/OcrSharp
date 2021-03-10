@@ -16,7 +16,7 @@ namespace OcrSharp.Infra.CrossCutting.IoC
 
         private void CopyRequiredFileToCurrentDirectoryApp()
         {
-            string sourceFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Library\pdfium.dll");
+            string sourceFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Library/pdfium.dll");
             string destFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"pdfium.dll");
 
             if (!File.Exists(destFile))

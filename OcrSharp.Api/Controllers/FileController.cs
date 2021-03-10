@@ -31,11 +31,11 @@ namespace OcrSharp.Api.Controllers
             _pdfFileService = pdfFileService;
         }
 
-        [HttpPut("image/get-zipped-file-ocr-of-multiple-images")]
+        [HttpPut("image/get-zipped-file-ocr-of-multiple-images/best-acuracy/{bestOcuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetZippedFileOcrOfMultipleImages(IFormFileCollection fileCollection, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetZippedFileOcrOfMultipleImages(IFormFileCollection fileCollection, bool bestOcuracy = false, CancellationToken cancellationToken = default)
         {
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
@@ -60,7 +60,7 @@ namespace OcrSharp.Api.Controllers
                     Content = await file.OpenReadStream().StreamToArrayAsync(cancellationToken)
                 };
 
-                filesToZip.Add(await _ocrService.ApplyOcrAsync(inMemory));
+                filesToZip.Add(await _ocrService.ApplyOcrAsync(inMemory, bestOcuracy));
             }
 
             var zipFile = await _fileUtilityService.GetZipArchive(filesToZip, cancellationToken);
@@ -70,11 +70,11 @@ namespace OcrSharp.Api.Controllers
             return result;
         }
 
-        [HttpPut("image/get-data-ocr-of-multiple-images")]
+        [HttpPut("image/get-data-ocr-of-multiple-images/best-acuracy/{bestOcuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetDataOcrOfMultipleImages(IFormFileCollection fileCollection, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetDataOcrOfMultipleImages(IFormFileCollection fileCollection, bool bestOcuracy = false, CancellationToken cancellationToken = default)
         {
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
@@ -99,7 +99,7 @@ namespace OcrSharp.Api.Controllers
                 };
 
                 var doc = new DocumentFile(1, file.FileName);
-                var result = await _ocrService.ApplyOcrAsync(inMemory);
+                var result = await _ocrService.ApplyOcrAsync(inMemory, bestOcuracy);
                 var page = new DocumentPage(1, Encoding.UTF8.GetString(result.Content))
                 {
                     Accuracy = result.Accuracy,
@@ -143,6 +143,27 @@ namespace OcrSharp.Api.Controllers
             return ConfigurationFileStreamToDownload(archive.Content.ArrayToStream(), filename, "application/zip");
         }
 
+        [HttpPut("pdf/convert-to-tiff")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile, CancellationToken cancellationToken)
+        {
+            if (!Path.GetExtension(inputFile.FileName).ToLower().Equals(".pdf"))
+                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+
+            using (var st = inputFile.OpenReadStream())
+            {
+                var archive = _pdfFileService.ConvertPdfFileToImages(new InMemoryFile
+                {
+                    FileName = inputFile.FileName,
+                    Content = await st.StreamToArrayAsync(cancellationToken)
+                });
+                var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
+                return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
+            }            
+        }
+
         [HttpPut("pdf/convert-page-to-tiff/{page}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -165,11 +186,11 @@ namespace OcrSharp.Api.Controllers
             }
         }
 
-        [HttpPut("pdf/extract-text-by-page/{pageNumber}")]
+        [HttpPut("pdf/extract-text-by-page/{pageNumber}/best-acuracy/{bestOcuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, CancellationToken cancellationToken)
+        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, bool bestOcuracy = false, CancellationToken cancellationToken = default)
         {
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
@@ -182,17 +203,17 @@ namespace OcrSharp.Api.Controllers
                     Content = await st.StreamToArrayAsync(cancellationToken)
                 };
 
-                var page = await _pdfFileService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, cancellationToken);
+                var page = await _pdfFileService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, bestOcuracy, cancellationToken);
                 var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
                 return Ok(textResult);
             }
         }
 
-        [HttpPut("pdf/extract-text")]
+        [HttpPut("pdf/extract-text/best-acuracy/{bestOcuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ExtractText(IFormFile inputFile, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<IActionResult> ExtractText(IFormFile inputFile, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
@@ -205,7 +226,7 @@ namespace OcrSharp.Api.Controllers
                     Content = await st.StreamToArrayAsync(cancellationToken)
                 };
 
-                var pdf = await _pdfFileService.ExtractTextFromPdf(inMemory, cancellationToken);
+                var pdf = await _pdfFileService.ExtractTextFromPdf(inMemory, bestOcuracy, cancellationToken);
                 return Ok(pdf);
             }
         }

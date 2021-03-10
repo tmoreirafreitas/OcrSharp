@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  ocrsharp.api:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    ports:
+      - "80:8085"

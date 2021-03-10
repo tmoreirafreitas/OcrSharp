@@ -50,7 +50,7 @@ namespace OcrSharp.Service
             };
         }
 
-        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken))
         {
             using (var document = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
@@ -66,7 +66,7 @@ namespace OcrSharp.Service
                     var image = ConvertPdfPageToImage(file, pageNumber);
                     if (image != null)
                     {
-                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.Content));
+                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.Content), bestOcuracy);
                         sb.Append(Encoding.UTF8.GetString(inMemoryFile.Content));
                         applyedOcr = true;
                     }
@@ -80,7 +80,7 @@ namespace OcrSharp.Service
             }
         }
 
-        public async Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken))
         {
             using (var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
@@ -93,7 +93,7 @@ namespace OcrSharp.Service
                 await pages.AsyncParallelForEach(async entry =>
                 {
                     ++index;
-                    var pdfPage = await ExtracTextFromPdfPageAsync(file, index);
+                    var pdfPage = await ExtracTextFromPdfPageAsync(file, index, bestOcuracy);
                     lock (listLock)
                         pdf.Pages.Add(pdfPage);
                 },
