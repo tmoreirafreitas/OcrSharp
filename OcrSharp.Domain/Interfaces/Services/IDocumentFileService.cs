@@ -10,8 +10,8 @@ namespace OcrSharp.Domain.Interfaces.Services
     {
         InMemoryFile ConvertMultiplePdfToImage(ref IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken));
         InMemoryFile ConvertPdfPageToImage(InMemoryFile file, int pageNumber);
-        Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken));
+        Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken));
         Stream ConvertPdfFileToImages(InMemoryFile file);
-        Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken));
+        Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken));
     }
 }

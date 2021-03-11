@@ -4,6 +4,7 @@ using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.CV.Util;
 using Microsoft.Extensions.Configuration;
+using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
@@ -29,20 +30,20 @@ namespace OcrSharp.Service
             _configuration = configuration;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, bool bestOcuracy = false)
+        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Medium)
         {           
-            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream(), bestOcuracy);
+            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream(), accuracy);
             file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";           
             return file;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream, bool bestOcuracy = false)
+        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
             var stResult = ImageForOcr(ref stream);
-            var file = await ProcessOcrAsync(stResult, bestOcuracy);
+            var file = await ProcessOcrAsync(stResult, accuracy);
 
             stopWatch.Stop();
             TimeSpan ts = stopWatch.Elapsed;
@@ -53,9 +54,21 @@ namespace OcrSharp.Service
             return file;
         }
 
-        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream, bool bestOcuracy = false)
+        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
         {
-            string tessDataPath = bestOcuracy ? _configuration["Tesseract:tessDataBest"] : _configuration["Tesseract:tessDataFast"];
+            string tessDataPath = string.Empty;
+            switch (accuracy)
+            {
+                case Accuracy.Hight:
+                    tessDataPath = _configuration["Tesseract:tessDataBest"];
+                    break;
+                case Accuracy.Low:
+                    tessDataPath = _configuration["Tesseract:tessDataFast"];
+                    break;
+                case Accuracy.Medium:
+                    tessDataPath = _configuration["Tesseract:tessData"];
+                    break;
+            }
 
             using (var engine = new TesseractEngine(tessDataPath, "por", EngineMode.Default))
             {
@@ -171,7 +184,7 @@ namespace OcrSharp.Service
         }
 
         public InMemoryFile TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, 
-            float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5, bool bestOcuracy = false)
+            float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5, Accuracy accuracy = Accuracy.Medium)
         {
             Deskew(fullFileName);
             InMemoryFile file = null;
@@ -237,7 +250,20 @@ namespace OcrSharp.Service
 
                             imgTable.ROI = rect;
 
-                            string tessDataPath = bestOcuracy ? _configuration["Tesseract:tessDataBest"] : _configuration["Tesseract:tessDataFast"];
+                            string tessDataPath = string.Empty;
+                            switch (accuracy)
+                            {
+                                case Accuracy.Hight:
+                                    tessDataPath = _configuration["Tesseract:tessDataBest"];
+                                    break;
+                                case Accuracy.Low:
+                                    tessDataPath = _configuration["Tesseract:tessDataFast"];
+                                    break;
+                                case Accuracy.Medium:
+                                    tessDataPath = _configuration["Tesseract:tessData"];
+                                    break;
+                            }
+
                             using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
                             {
                                 engine.DefaultPageSegMode = PageSegMode.SingleBlock;

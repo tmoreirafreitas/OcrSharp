@@ -2,6 +2,7 @@
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -108,7 +109,7 @@ namespace OcrSharp.Service
                         ms.Position = 0;
                         files.Add(new InMemoryFile { FileName = file, Content = ms.ToArray() });
                     }
-                }                
+                }
             }
 
             Directory.Delete(folderPath, true);

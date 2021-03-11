@@ -1,8 +1,10 @@
-﻿using OcrSharp.Domain.Entities;
+﻿using OcrSharp.Domain;
+using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
 using PdfiumViewer;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -25,21 +27,26 @@ namespace OcrSharp.Service
 
         public InMemoryFile ConvertMultiplePdfToImage(ref IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken))
         {
-            var filesToZip = new List<InMemoryFile>();
-
-            foreach (var file in fileCollection)
+            IList<InMemoryFile> filesToZip = new List<InMemoryFile>();
+            object listlock = new object();
+            Parallel.ForEach(fileCollection, new ParallelOptions
+            {
+                // multiply the count because a processor can have 2 cores
+                MaxDegreeOfParallelism = Environment.ProcessorCount
+            }, file =>
             {
                 if (cancellationToken.IsCancellationRequested)
                     cancellationToken.ThrowIfCancellationRequested();
 
                 var fileZipStream = ConvertPdfFileToImages(file);
 
-                filesToZip.Add(new InMemoryFile
-                {
-                    FileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_Images_Results_{DateTime.Now.GetDateNowEngFormat()}.zip",
-                    Content = fileZipStream.StreamToArrayAsync(cancellationToken).Result
-                });
-            }
+                lock (listlock)
+                    filesToZip.Add(new InMemoryFile
+                    {
+                        FileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_Images_Results_{DateTime.Now.GetDateNowEngFormat()}.zip",
+                        Content = fileZipStream.StreamToArrayAsync(cancellationToken).Result
+                    });
+            });
 
             var zipFile = _fileUtilityService.GetZipArchive(filesToZip).Result;
             var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
@@ -50,7 +57,7 @@ namespace OcrSharp.Service
             };
         }
 
-        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
         {
             using (var document = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
@@ -66,13 +73,13 @@ namespace OcrSharp.Service
                     var image = ConvertPdfPageToImage(file, pageNumber);
                     if (image != null)
                     {
-                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.Content), bestOcuracy);
+                        inMemoryFile = await _ocrFileService.ApplyOcrAsync(new MemoryStream(image.Content), accuracy);
                         sb.Append(Encoding.UTF8.GetString(inMemoryFile.Content));
                         applyedOcr = true;
                     }
                 }
                 var page = new DocumentPage(pageNumber, sb.ToString(), applyedOcr);
-                if(page.AppliedOcr)
+                if (page.AppliedOcr)
                 {
                     page.Accuracy = inMemoryFile.Accuracy;
                 }
@@ -80,26 +87,29 @@ namespace OcrSharp.Service
             }
         }
 
-        public async Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, bool bestOcuracy = false, CancellationToken cancellationToken = default(CancellationToken))
+        public Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
         {
             using (var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content))
             {
                 var pagesCount = doc.GetPages().Count();
                 var pdf = new DocumentFile(pagesCount, file.FileName);
                 var index = 0;
-                var pages = doc.GetPages().ToAsyncEnumerable();
+                var pages = doc.GetPages();
 
-                object listLock = new object();
-                await pages.AsyncParallelForEach(async entry =>
+                object listlock = new object();
+                Parallel.ForEach(pages, new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Environment.ProcessorCount
+                },
+                page =>
                 {
                     ++index;
-                    var pdfPage = await ExtracTextFromPdfPageAsync(file, index, bestOcuracy);
-                    lock (listLock)
+                    var pdfPage = ExtracTextFromPdfPageAsync(file, index, accuracy).Result;
+                    lock (listlock)
                         pdf.Pages.Add(pdfPage);
-                },
-                    Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0)));
+                });
 
-                return pdf;
+                return Task.FromResult(pdf);
             }
         }
 
@@ -110,7 +120,8 @@ namespace OcrSharp.Service
         /// <returns>return the zipped image files</returns>
         public Stream ConvertPdfFileToImages(InMemoryFile file)
         {
-            ICollection<InMemoryFile> files = new List<InMemoryFile>();
+            IList<InMemoryFile> files = new List<InMemoryFile>();
+            object listlock = new object();
             var outputImagePath = string.Empty;
 
             var pagesCount = 0;
@@ -119,15 +130,15 @@ namespace OcrSharp.Service
 
             InMemoryFile fileInMemory = null;
             object listLock = new object();
-            Parallel.For(1, pagesCount, new ParallelOptions
+
+            Parallel.For(0, pagesCount, new ParallelOptions
             {
-                // multiply the count because a processor can have 2 cores
-                MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2.0))
+                MaxDegreeOfParallelism = Environment.ProcessorCount
             }, i =>
             {
-                fileInMemory = ConvertPdfPageToImage(file, i);
+                fileInMemory = ConvertPdfPageToImage(file, i + 1);
                 if (fileInMemory != null)
-                    lock (listLock)
+                    lock (listlock)
                         files.Add(fileInMemory);
             });
 
@@ -146,7 +157,6 @@ namespace OcrSharp.Service
             var yDpi = 300; //set the y DPI
 
             InMemoryFile fileInMemory = null;
-
             var pdfFilename = $"{ Path.GetFileNameWithoutExtension(file.FileName)}_Pagina_{pageNumber:D3}.tiff";
 
             using (var pigDocument = UglyToad.PdfPig.PdfDocument.Open(file.Content))
@@ -164,7 +174,6 @@ namespace OcrSharp.Service
                     }
                 }
             }
-
 
             if (fileInMemory == null)
             {
