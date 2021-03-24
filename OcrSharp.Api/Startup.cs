@@ -44,9 +44,14 @@ namespace OcrSharp.Api
             loggerFactory.AddLog4Net("log4net.config");
 
             if (env.IsDevelopment())
-                app.UseDeveloperExceptionPage();               
+            {
+                app.UseDeveloperExceptionPage();
+            }     
             else
+            {
                 app.UseStatusCodePages();
+                app.UseHsts();
+            }
 
             app.UseStaticFiles();
             app.UseResponseCompression();
