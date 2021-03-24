@@ -193,5 +193,11 @@ namespace OcrSharp.Service
 
             return fileInMemory;
         }
+
+        public int GetNumberOfPages(InMemoryFile file)
+        {
+            using var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content);
+            return doc.NumberOfPages;
+        }
     }
 }

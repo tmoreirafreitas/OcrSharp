@@ -1,11 +1,16 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using OcrSharp.Api.Hubs;
+using OcrSharp.Api.ViewModel;
 using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
+using OcrSharp.Service;
 using OcrSharp.Service.Extensions;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -23,23 +28,28 @@ namespace OcrSharp.Api.Controllers
     [ApiController]
     public class FileController : ControllerBase
     {
-        private readonly IFileUtilityService _fileUtilityService;
         private readonly IOcrFileService _ocrService;
-        private readonly IDocumentFileService _pdfFileService;
+        private readonly IDocumentFileService _documentService;
+        private readonly IHubContext<StreamingHub> _streaming;
+        private readonly ILogger _logger;
 
-        public FileController(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService, IDocumentFileService pdfFileService)
+        public FileController(IOcrFileService ocrFileService, IDocumentFileService documentService,
+            ILoggerFactory loggerFactory, IHubContext<StreamingHub> streamingHub)
         {
-            _fileUtilityService = fileUtilityService;
             _ocrService = ocrFileService;
-            _pdfFileService = pdfFileService;
+            _documentService = documentService;
+            _logger = loggerFactory.CreateLogger<FileController>();
+            _streaming = streamingHub;
         }
 
-        [HttpPut("image/get-zipped-file-ocr-of-multiple-images/accuracy/{accuracy}")]
+        [Consumes("multipart/form-data")]
+        [HttpPut("image/send-multiple-images-for-ocr/accuracy/{accuracy}/connectionId/{connectionId}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetZippedFileOcrOfMultipleImages(IFormFileCollection fileCollection, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
+        public IActionResult SendMultipleImagesForOcr(IFormFileCollection fileCollection, string connectionId, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation("Validando extenção dos arquivos de imagens");
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tiff")
@@ -53,41 +63,66 @@ namespace OcrSharp.Api.Controllers
                 return BadRequest($@"Há extensão de arquivo não suportado, os tipos suportados são: 
                                     Bitmap(*.bmp), JPEG(*.jpeg; *.jpg; *.jpe; *.jfif), TIFF(*.tif; *.tiff) e PNG(*.png)");
 
-            var filesToZip = new List<InMemoryFile>();
-            object listlock = new object();
-            Parallel.ForEach(fileCollection, new ParallelOptions
-            {
-                // multiply the count because a processor can have 2 cores
-                MaxDegreeOfParallelism = Environment.ProcessorCount
-            },
-            file =>
-            {
-                var inMemory = new InMemoryFile()
+            var index = 0;
+            object locker = new object();
+            var files = new List<InMemoryFile>();
+            var pp = new ParallelProcessor<IFormFile>(Environment.ProcessorCount - 1,
+                file =>
                 {
-                    FileName = file.FileName,
-                    Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
-                };
+                    var inMemory = new InMemoryFile()
+                    {
+                        FileName = file.FileName,
+                        Page = ++index,
+                        Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
+                    };
 
-                lock (listlock)
-                    filesToZip.Add(_ocrService.ApplyOcrAsync(inMemory, accuracy).Result);
+                    lock (locker)
+                        files.Add(inMemory);
+                });
+            pp.ForEach(fileCollection);
+
+            Task.Factory.StartNew(() =>
+            {
+                var totalFiles = fileCollection.Count;
+                var pp = new ParallelProcessor<InMemoryFile>(Environment.ProcessorCount - 1,
+                async file =>
+                {
+                    var pageResult = await _ocrService.ApplyOcrAsync(file, accuracy);
+                    lock (locker)
+                    {
+                        var ocr = new OcrResultViewModel
+                        {
+                            FileName = file.FileName,
+                            Accuracy = pageResult.Accuracy,
+                            ContentType = "text/plain",
+                            Content = Convert.ToBase64String(pageResult.Content, Base64FormattingOptions.InsertLineBreaks),
+                            CurrentPage = file.Page,
+                            NumberOfPages = totalFiles,
+                            RunTime = pageResult.RunTime,
+                            IsBase64 = true
+                        };
+                        string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                        _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken);
+                    }
+                });
+                pp.ForEach(files);
             });
 
-            var zipFile = await _fileUtilityService.GetZipArchive(filesToZip, cancellationToken);
-            var filename = $"OCR_RESULT_{DateTime.Now.GetDateNowEngFormat()}.zip";
-            var result = ConfigurationFileStreamToDownload(zipFile, filename, "application/zip");
-
-            return result;
+            return Ok("Imagens enviada com sucesso para extração de textos.");
         }
 
-        [HttpPut("image/get-data-ocr-of-multiple-images/accuracy/{accuracy}")]
+        [Consumes("multipart/form-data")]
+        [HttpPut("image/send-multiple-images-for-data-ocr/accuracy/{accuracy}/connectionId/{connectionId}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetDataOcrOfMultipleImages(IFormFileCollection fileCollection, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
+        public IActionResult SendMultipleImagesForDataOcr(IFormFileCollection fileCollection, string connectionId,
+            Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
+            _logger.LogInformation("Validando extenção dos arquivos de imagens");
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tif")
             && !Path.GetExtension(x.FileName.ToLower()).Equals(".tiff")
@@ -103,122 +138,157 @@ namespace OcrSharp.Api.Controllers
 
             var doc = new DocumentFile(1, "");
             var index = 0;
-            object listlock = new object();
-            Parallel.ForEach(fileCollection, new ParallelOptions
-            {
-                // multiply the count because a processor can have 2 cores
-                MaxDegreeOfParallelism = Environment.ProcessorCount
-            },
-            file =>
-            {
-                var inMemory = new InMemoryFile()
+            var files = new List<InMemoryFile>();
+            object locker = new object();
+            var pp = new ParallelProcessor<IFormFile>(Environment.ProcessorCount - 1,
+                file =>
                 {
-                    FileName = file.FileName,
-                    Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
-                };
+                    var inMemory = new InMemoryFile()
+                    {
+                        FileName = file.FileName,
+                        Page = ++index,
+                        Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
+                    };
 
-                //var doc = new DocumentFile(1, file.FileName);
-                var result = _ocrService.ApplyOcrAsync(inMemory, accuracy).Result;
-                var page = new DocumentPage(++index, Encoding.UTF8.GetString(result.Content))
+                    lock (locker)
+                        files.Add(inMemory);
+                });
+            pp.ForEach(fileCollection);
+
+            Task.Factory.StartNew(() =>
+            {
+                var totalFiles = fileCollection.Count;
+                var currentPage = 0;
+                var pp = new ParallelProcessor<InMemoryFile>(Environment.ProcessorCount - 1,
+                async file =>
                 {
-                    Accuracy = result.Accuracy,
-                    RunTime = result.RunTime
-                };
-                lock (listlock)
-                    doc.Pages.Add(page);
+                    var result = await _ocrService.ApplyOcrAsync(file, accuracy);
+                    lock (locker)
+                    {
+                        var ocr = new OcrResultViewModel
+                        {
+                            FileName = file.FileName,
+                            Accuracy = result.Accuracy,
+                            Content = Encoding.UTF8.GetString(result.Content),
+                            NumberOfPages = totalFiles,
+                            RunTime = result.RunTime,
+                            CurrentPage = ++currentPage,
+                            IsBase64 = false
+                        };
+                        string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                        _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
+                    }
+                });
+                pp.ForEach(files);
             });
 
-            stopWatch.Stop();
-            TimeSpan ts = stopWatch.Elapsed;
-            string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
-            ts.Hours, ts.Minutes, ts.Seconds,
-            ts.Milliseconds / 10);
-            doc.RunTimeTotal = elapsedTime;
-
-            return Ok(await Task.FromResult(doc));
+            return Ok("Imagens enviada com sucesso para extração de textos.");
         }
 
+        [Consumes("multipart/form-data")]
         [HttpPut("pdf/convert-multiple-to-tiff")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ConvertMultiplePdfFileToImages(IFormFileCollection fileCollection, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Validando extenção arquivo");
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName).Equals(".pdf"));
             if (filesNotSuport.Any())
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            IEnumerable<InMemoryFile> filesToZip = new List<InMemoryFile>();
-            object listlock = new object();
-            Parallel.ForEach(fileCollection, new ParallelOptions
-            {
-                // multiply the count because a processor can have 2 cores
-                MaxDegreeOfParallelism = Environment.ProcessorCount
-            },
-            file =>
+            var filesToZip = new List<InMemoryFile>();
+
+            object locker = new object();
+            Parallel.ForEach(fileCollection, new ParallelOptions { MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2)) },
+            (file, loopState) =>
             {
                 if (cancellationToken.IsCancellationRequested)
                     cancellationToken.ThrowIfCancellationRequested();
 
-                using (var st = file.OpenReadStream())
-                {
-                    lock (listlock)
-                        ((IList<InMemoryFile>)filesToZip).Add(new InMemoryFile
-                        {
-                            FileName = file.FileName,
-                            Content = st.StreamToArrayAsync(cancellationToken).Result
-                        });
-                }
+                using var st = file.OpenReadStream();
+                lock (locker)
+                    filesToZip.Add(new InMemoryFile
+                    {
+                        FileName = file.FileName,
+                        Content = st.StreamToArrayAsync(cancellationToken).Result
+                    });
             });
 
-            var archive = _pdfFileService.ConvertMultiplePdfToImage(ref filesToZip, cancellationToken);
+            var tmp = filesToZip.AsEnumerable();
+            var archive = _documentService.ConvertMultiplePdfToImage(ref tmp, cancellationToken);
             var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
             return await Task.FromResult(ConfigurationFileStreamToDownload(archive.Content.ArrayToStream(), filename, "application/zip"));
         }
 
+        [Consumes("multipart/form-data")]
         [HttpPut("pdf/convert-to-tiff")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Validando extenção arquivo");
             if (!Path.GetExtension(inputFile.FileName).ToLower().Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using (var st = inputFile.OpenReadStream())
+            using var st = inputFile.OpenReadStream();
+            var archive = _documentService.ConvertPdfFileToImages(new InMemoryFile
             {
-                var archive = _pdfFileService.ConvertPdfFileToImages(new InMemoryFile
-                {
-                    FileName = inputFile.FileName,
-                    Content = await st.StreamToArrayAsync(cancellationToken)
-                });
-                var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
-                return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
-            }
+                FileName = inputFile.FileName,
+                Content = await st.StreamToArrayAsync(cancellationToken)
+            });
+            var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
+            return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
         }
 
+        [Consumes("multipart/form-data")]
+        [HttpPut("pdf/number-of-pages")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetNumberOfPages(IFormFile inputFile)
+        {
+            _logger.LogInformation("Validando extenção arquivo");
+            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+
+            _logger.LogInformation("Obtendo o número de páginas");
+            using var st = inputFile.OpenReadStream();
+            var file = new InMemoryFile()
+            {
+                FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
+                Content = await st.StreamToArrayAsync()
+            };
+
+            return Ok(_documentService.GetNumberOfPages(file));
+        }
+
+        [Consumes("multipart/form-data")]
         [HttpPut("pdf/convert-page-to-tiff/{page}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile inputFile, int page, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Validando extenção arquivo");
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using (var st = inputFile.OpenReadStream())
+            using var st = inputFile.OpenReadStream();
+            var inMemory = new InMemoryFile()
             {
-                var inMemory = new InMemoryFile()
-                {
-                    FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
-                    Content = await st.StreamToArrayAsync(cancellationToken)
-                };
+                FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
+                Content = await st.StreamToArrayAsync(cancellationToken)
+            };
 
-                var fileImage = _pdfFileService.ConvertPdfPageToImage(inMemory, page);
-                return ConfigurationFileStreamToDownload(fileImage.Content.ArrayToStream(), fileImage.FileName, "image/png");
-            }
+            _logger.LogInformation($"Convertendo página {page} do arquivo {inMemory.FileName} em imagem");
+            var fileImage = _documentService.ConvertPdfPageToImage(inMemory, page);
+            _logger.LogInformation($"Conversão finalizada");
+            return ConfigurationFileStreamToDownload(fileImage.Content.ArrayToStream(), fileImage.FileName, "image/tiff");
         }
 
+        [Consumes("multipart/form-data")]
         [HttpPut("pdf/extract-text-by-page/{pageNumber}/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -228,52 +298,64 @@ namespace OcrSharp.Api.Controllers
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using (var st = inputFile.OpenReadStream())
+            using var st = inputFile.OpenReadStream();
+            var inMemory = new InMemoryFile()
             {
-                var inMemory = new InMemoryFile()
-                {
-                    FileName = inputFile.FileName,
-                    Content = await st.StreamToArrayAsync(cancellationToken)
-                };
+                FileName = inputFile.FileName,
+                Content = await st.StreamToArrayAsync(cancellationToken)
+            };
 
-                var page = await _pdfFileService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, accuracy, cancellationToken);
-                var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
-                return Ok(textResult);
-            }
+            _logger.LogInformation($"Extraindo texto da página {pageNumber} do documento {inMemory.FileName}");
+            var page = await _documentService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, accuracy, cancellationToken);
+            _logger.LogInformation($"Extração do texto finalizada.");
+            var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
+            return Ok(textResult);
         }
 
-        [HttpPut("pdf/extract-text/accuracy/{accuracy}")]
+        [Consumes("multipart/form-data")]
+        [HttpPut("pdf/send-file-to-extract-text/accuracy/{accuracy}/connectionId/{connectionId}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ExtractText(IFormFile inputFile, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
+        public IActionResult ExtractText(IFormFile inputFile, string connectionId, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
         {
-            Stopwatch stopWatch = new Stopwatch();
-            stopWatch.Start();
-
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using (var st = inputFile.OpenReadStream())
+            using var st = inputFile.OpenReadStream();
+            var inMemory = new InMemoryFile()
             {
-                var inMemory = new InMemoryFile()
-                {
-                    FileName = inputFile.FileName,
-                    Content = await st.StreamToArrayAsync(cancellationToken)
-                };
+                FileName = inputFile.FileName,
+                Content = st.StreamToArrayAsync(cancellationToken).GetAwaiter().GetResult()
+            };
 
-                var pdf = await _pdfFileService.ExtractTextFromPdf(inMemory, accuracy, cancellationToken);
+            var locker = new object();
+            var numberOfPages = _documentService.GetNumberOfPages(inMemory);
+            Task.Factory.StartNew(() =>
+            {
+                Parallel.For(0, numberOfPages, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount - 1 },
+                    i =>
+                    {
+                        var result = _documentService.ExtracTextFromPdfPageAsync(inMemory, i + 1, accuracy).Result;
+                        lock (locker)
+                        {
+                            var ocr = new OcrResultViewModel
+                            {
+                                FileName = inMemory.FileName,
+                                Accuracy = result.Accuracy,
+                                CurrentPage = result.PageNumber,
+                                Content = result.Content,
+                                NumberOfPages = numberOfPages,
+                                RunTime = result.RunTime,
+                                IsBase64 = false
+                            };
+                            string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                            _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
+                        }
+                    });
+            });
 
-
-                stopWatch.Stop();
-                TimeSpan ts = stopWatch.Elapsed;
-                string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
-                ts.Hours, ts.Minutes, ts.Seconds,
-                ts.Milliseconds / 10);
-                pdf.RunTimeTotal = elapsedTime;
-
-                return Ok(pdf);
-            }
+            return Ok("Arquivo enviado para extração dos textos, por favor aguarde um momento");
         }
 
         private FileStreamResult ConfigurationFileStreamToDownload(Stream file, string fileName, string contentType)
