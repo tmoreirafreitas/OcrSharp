@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
+using OcrSharp.Api.Hubs;
 using OcrSharp.Api.Setup;
 using OcrSharp.Infra.CrossCutting.IoC.Extensions;
 using Swashbuckle.AspNetCore.SwaggerUI;
@@ -36,6 +37,7 @@ namespace OcrSharp.Api
             });
 
             services.InstallServicesInAssembly(Configuration);
+            services.AddSignalR();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -71,6 +73,7 @@ namespace OcrSharp.Api
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHub<StreamingHub>("/StreamingHub");
             });
         }
     }

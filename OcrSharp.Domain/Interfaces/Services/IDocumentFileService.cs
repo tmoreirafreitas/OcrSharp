@@ -13,5 +13,6 @@ namespace OcrSharp.Domain.Interfaces.Services
         Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken));
         Stream ConvertPdfFileToImages(InMemoryFile file);
         Task<DocumentFile> ExtractTextFromPdf(InMemoryFile file, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken));
+        int GetNumberOfPages(InMemoryFile file);
     }
 }
