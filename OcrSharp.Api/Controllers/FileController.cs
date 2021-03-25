@@ -106,7 +106,7 @@ namespace OcrSharp.Api.Controllers
                     }
                 });
                 pp.ForEach(files);
-            });
+            }, cancellationToken);
 
             return Ok("Imagens enviada com sucesso para extração de textos.");
         }
@@ -180,7 +180,7 @@ namespace OcrSharp.Api.Controllers
                     }
                 });
                 pp.ForEach(files);
-            });
+            }, cancellationToken);
 
             return Ok("Imagens enviada com sucesso para extração de textos.");
         }
@@ -353,7 +353,7 @@ namespace OcrSharp.Api.Controllers
                             _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
                         }
                     });
-            });
+            }, cancellationToken);
 
             return Ok("Arquivo enviado para extração dos textos, por favor aguarde um momento");
         }
