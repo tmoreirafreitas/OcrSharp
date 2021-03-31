@@ -8,7 +8,6 @@ using OcrSharp.Api.ViewModel;
 using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
-using OcrSharp.Service;
 using OcrSharp.Service.Extensions;
 using System;
 using System.Collections.Generic;
@@ -33,8 +32,8 @@ namespace OcrSharp.Api.Controllers
         private readonly IHubContext<StreamingHub> _streaming;
         private readonly ILogger _logger;
 
-        public FileController(IOcrFileService ocrFileService, IDocumentFileService documentService,
-            ILoggerFactory loggerFactory, IHubContext<StreamingHub> streamingHub)
+        public FileController(IOcrFileService ocrFileService, IDocumentFileService documentService, ILoggerFactory loggerFactory,
+            IHubContext<StreamingHub> streamingHub)
         {
             _ocrService = ocrFileService;
             _documentService = documentService;
@@ -47,7 +46,8 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult SendMultipleImagesForOcr(IFormFileCollection fileCollection, string connectionId, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> SendMultipleImagesForOcr(IFormFileCollection fileCollection, string connectionId, Accuracy accuracy = Accuracy.Medium,
+            CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("Validando extenção dos arquivos de imagens");
             var filesNotSuport = fileCollection.Where(x => !Path.GetExtension(x.FileName.ToLower()).Equals(".bmp")
@@ -64,49 +64,32 @@ namespace OcrSharp.Api.Controllers
                                     Bitmap(*.bmp), JPEG(*.jpeg; *.jpg; *.jpe; *.jfif), TIFF(*.tif; *.tiff) e PNG(*.png)");
 
             var index = 0;
-            object locker = new object();
-            var files = new List<InMemoryFile>();
-            var pp = new ParallelProcessor<IFormFile>(Environment.ProcessorCount - 1,
-                file =>
-                {
-                    var inMemory = new InMemoryFile()
-                    {
-                        FileName = file.FileName,
-                        Page = ++index,
-                        Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
-                    };
-
-                    lock (locker)
-                        files.Add(inMemory);
-                });
-            pp.ForEach(fileCollection);
-
-            Task.Factory.StartNew(() =>
+            var totalFiles = fileCollection.Count;
+            await fileCollection.ParallelForEachAsync(async file =>
             {
-                var totalFiles = fileCollection.Count;
-                var pp = new ParallelProcessor<InMemoryFile>(Environment.ProcessorCount - 1,
-                async file =>
+                var inMemory = new InMemoryFile()
                 {
-                    var pageResult = await _ocrService.ApplyOcrAsync(file, accuracy);
-                    lock (locker)
-                    {
-                        var ocr = new OcrResultViewModel
-                        {
-                            FileName = file.FileName,
-                            Accuracy = pageResult.Accuracy,
-                            ContentType = "text/plain",
-                            Content = Convert.ToBase64String(pageResult.Content, Base64FormattingOptions.InsertLineBreaks),
-                            CurrentPage = file.Page,
-                            NumberOfPages = totalFiles,
-                            RunTime = pageResult.RunTime,
-                            IsBase64 = true
-                        };
-                        string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
-                        _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken);
-                    }
-                });
-                pp.ForEach(files);
-            }, cancellationToken);
+                    FileName = file.FileName,
+                    Page = ++index,
+                    Content = await file.OpenReadStream().StreamToArrayAsync(cancellationToken)
+                };
+
+                var pageResult = await _ocrService.ApplyOcrAsync(inMemory, accuracy);
+                var ocr = new OcrResultViewModel
+                {
+                    FileName = inMemory.FileName,
+                    Accuracy = pageResult.Accuracy,
+                    ContentType = "text/plain",
+                    Content = Convert.ToBase64String(pageResult.Content, Base64FormattingOptions.InsertLineBreaks),
+                    CurrentPage = inMemory.Page,
+                    NumberOfPages = totalFiles,
+                    RunTime = pageResult.RunTime,
+                    IsBase64 = true
+                };
+                string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                await _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken);
+
+            }, Environment.ProcessorCount);
 
             return Ok("Imagens enviada com sucesso para extração de textos.");
         }
@@ -116,7 +99,7 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult SendMultipleImagesForDataOcr(IFormFileCollection fileCollection, string connectionId,
+        public async Task<IActionResult> SendMultipleImagesForDataOcr(IFormFileCollection fileCollection, string connectionId,
             Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default)
         {
             Stopwatch stopWatch = new Stopwatch();
@@ -138,49 +121,31 @@ namespace OcrSharp.Api.Controllers
 
             var doc = new DocumentFile(1, "");
             var index = 0;
-            var files = new List<InMemoryFile>();
-            object locker = new object();
-            var pp = new ParallelProcessor<IFormFile>(Environment.ProcessorCount - 1,
-                file =>
-                {
-                    var inMemory = new InMemoryFile()
-                    {
-                        FileName = file.FileName,
-                        Page = ++index,
-                        Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
-                    };
-
-                    lock (locker)
-                        files.Add(inMemory);
-                });
-            pp.ForEach(fileCollection);
-
-            Task.Factory.StartNew(() =>
+            var totalFiles = fileCollection.Count;
+            var currentPage = 0;
+            await fileCollection.ParallelForEachAsync(async file =>
             {
-                var totalFiles = fileCollection.Count;
-                var currentPage = 0;
-                var pp = new ParallelProcessor<InMemoryFile>(Environment.ProcessorCount - 1,
-                async file =>
+                var inMemory = new InMemoryFile()
                 {
-                    var result = await _ocrService.ApplyOcrAsync(file, accuracy);
-                    lock (locker)
-                    {
-                        var ocr = new OcrResultViewModel
-                        {
-                            FileName = file.FileName,
-                            Accuracy = result.Accuracy,
-                            Content = Encoding.UTF8.GetString(result.Content),
-                            NumberOfPages = totalFiles,
-                            RunTime = result.RunTime,
-                            CurrentPage = ++currentPage,
-                            IsBase64 = false
-                        };
-                        string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
-                        _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
-                    }
-                });
-                pp.ForEach(files);
-            }, cancellationToken);
+                    FileName = file.FileName,
+                    Page = ++index,
+                    Content = file.OpenReadStream().StreamToArrayAsync(cancellationToken).Result
+                };
+
+                var result = await _ocrService.ApplyOcrAsync(inMemory, accuracy);
+                var ocr = new OcrResultViewModel
+                {
+                    FileName = file.FileName,
+                    Accuracy = result.Accuracy,
+                    Content = Encoding.UTF8.GetString(result.Content),
+                    NumberOfPages = totalFiles,
+                    RunTime = result.RunTime,
+                    CurrentPage = ++currentPage,
+                    IsBase64 = false
+                };
+                string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                await _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken);
+            }, Environment.ProcessorCount);
 
             return Ok("Imagens enviada com sucesso para extração de textos.");
         }
@@ -200,20 +165,22 @@ namespace OcrSharp.Api.Controllers
             var filesToZip = new List<InMemoryFile>();
 
             object locker = new object();
-            Parallel.ForEach(fileCollection, new ParallelOptions { MaxDegreeOfParallelism = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.25 * 2)) },
-            (file, loopState) =>
+            await fileCollection.ParallelForEachAsync(async file =>
             {
-                if (cancellationToken.IsCancellationRequested)
-                    cancellationToken.ThrowIfCancellationRequested();
+                await Task.Run(() =>
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                using var st = file.OpenReadStream();
-                lock (locker)
-                    filesToZip.Add(new InMemoryFile
-                    {
-                        FileName = file.FileName,
-                        Content = st.StreamToArrayAsync(cancellationToken).Result
-                    });
-            });
+                    using var st = file.OpenReadStream();
+                    lock (locker)
+                        filesToZip.Add(new InMemoryFile
+                        {
+                            FileName = file.FileName,
+                            Content = st.StreamToArrayAsync(cancellationToken).Result
+                        });
+                });
+            }, Environment.ProcessorCount);
 
             var tmp = filesToZip.AsEnumerable();
             var archive = _documentService.ConvertMultiplePdfToImage(ref tmp, cancellationToken);
@@ -329,31 +296,31 @@ namespace OcrSharp.Api.Controllers
                 Content = st.StreamToArrayAsync(cancellationToken).GetAwaiter().GetResult()
             };
 
-            var locker = new object();
             var numberOfPages = _documentService.GetNumberOfPages(inMemory);
             Task.Factory.StartNew(() =>
             {
-                Parallel.For(0, numberOfPages, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount - 1 },
-                    i =>
+                //var maxthreads = Convert.ToInt32(Math.Ceiling((Environment.ProcessorCount * 0.75) * 2.0));
+                var maxthreads = Environment.ProcessorCount;
+                var pages = _documentService.GetPages(inMemory);
+                var index = 0;
+                pages.ParallelForEachAsync(async page =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var result = await _documentService.ExtracTextFromPdfPageAsync(inMemory, ++index, accuracy);
+                    var ocr = new OcrResultViewModel
                     {
-                        var result = _documentService.ExtracTextFromPdfPageAsync(inMemory, i + 1, accuracy).Result;
-                        lock (locker)
-                        {
-                            var ocr = new OcrResultViewModel
-                            {
-                                FileName = inMemory.FileName,
-                                Accuracy = result.Accuracy,
-                                CurrentPage = result.PageNumber,
-                                Content = result.Content,
-                                NumberOfPages = numberOfPages,
-                                RunTime = result.RunTime,
-                                IsBase64 = false
-                            };
-                            string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
-                            _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
-                        }
-                    });
-            }, cancellationToken);
+                        FileName = inMemory.FileName,
+                        Accuracy = result.Accuracy,
+                        CurrentPage = result.PageNumber,
+                        Content = result.Content,
+                        NumberOfPages = numberOfPages,
+                        RunTime = result.RunTime,
+                        IsBase64 = false
+                    };
+                    string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(ocr));
+                    await _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken);
+                }, maxthreads);
+            });
 
             return Ok("Arquivo enviado para extração dos textos, por favor aguarde um momento");
         }

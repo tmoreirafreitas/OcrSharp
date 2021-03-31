@@ -4,7 +4,6 @@ using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
 using PdfiumViewer;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -198,6 +197,12 @@ namespace OcrSharp.Service
         {
             using var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content);
             return doc.NumberOfPages;
+        }
+
+        public IEnumerable<UglyToad.PdfPig.Content.Page> GetPages(InMemoryFile file)
+        {
+            var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content);
+            return doc.GetPages();
         }
     }
 }
