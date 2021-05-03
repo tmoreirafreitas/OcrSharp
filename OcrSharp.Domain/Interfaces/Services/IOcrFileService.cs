@@ -7,9 +7,9 @@ namespace OcrSharp.Domain.Interfaces.Services
 {
     public interface IOcrFileService : IDomainService
     {
-        Task<InMemoryFile> ApplyOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium);
-        Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Medium);
-        Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Medium);
-        Stream ImageForOcr(ref Stream stream);
+        Task<InMemoryFile> ApplyOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Low);
+        Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Low);
+        Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Low);
+        Stream ImageForOcr(Stream stream);
     }
 }

@@ -61,9 +61,6 @@ namespace OcrSharp.Api.Controllers
             return Ok(Encoding.UTF8.GetString(result.Content));
         }
 
-            return Ok("Imagens enviada com sucesso para extração de textos.");
-        }
-
         [Consumes("multipart/form-data")]
         [HttpPut("image/for-data-ocr/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]

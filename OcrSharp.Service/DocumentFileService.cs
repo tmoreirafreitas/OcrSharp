@@ -44,7 +44,7 @@ namespace OcrSharp.Service
         public async Task<InMemoryFile> ConvertMultiplePdfToImageAsync(IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken))
         {
             var filesToZip = new List<InMemoryFile>();
-            await fileCollection.AsyncParallelForEach(async file =>
+            await fileCollection.ParallelForEachAsync(async file =>
             {
                 if (cancellationToken.IsCancellationRequested)
                     cancellationToken.ThrowIfCancellationRequested();
@@ -67,7 +67,7 @@ namespace OcrSharp.Service
             };
         }
 
-        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken))
         {
             using var doc = DocLib.Instance.GetDocReader(file.Content, new PageDimensions(1080, 1920));
             var pdfPage = doc.GetPageReader(pageNumber);
@@ -106,7 +106,7 @@ namespace OcrSharp.Service
             return numberOfPages;
         }
 
-        public async Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy = Accuracy.Medium, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken))
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
@@ -121,7 +121,7 @@ namespace OcrSharp.Service
             var images = new List<InMemoryFile>();
             var totalPages = Enumerable.Range(0, numberOfPages);
             var locker = new object();
-            await totalPages.AsyncParallelForEach(numberPage =>
+            await totalPages.ParallelForEachAsync(numberPage =>
             {
                 var currentPage = numberPage + 1;
                 var pageReader = doc.GetPageReader(numberPage);
@@ -262,12 +262,6 @@ namespace OcrSharp.Service
                 var rect = new Rectangle(c.Box.Left, c.Box.Top, c.Box.Right - c.Box.Left, c.Box.Bottom - c.Box.Top);
                 graphics.DrawRectangle(pen, rect);
             }
-        }
-
-        public IEnumerable<UglyToad.PdfPig.Content.Page> GetPages(InMemoryFile file)
-        {
-            var doc = UglyToad.PdfPig.PdfDocument.Open(file.Content);
-            return doc.GetPages();
         }
     }
 }

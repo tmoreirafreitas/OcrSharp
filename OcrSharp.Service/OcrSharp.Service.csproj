@@ -17,7 +17,6 @@
     <PackageReference Include="Emgu.CV" Version="4.5.1.4349" />
     <PackageReference Include="Emgu.CV.Bitmap" Version="4.5.1.4349" />
     <PackageReference Include="Emgu.CV.runtime.windows" Version="4.5.1.4349" />
-    <PackageReference Include="Hueppauff.PdfiumViewer.Core" Version="1.0.19172.6" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="5.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="5.0.0" />

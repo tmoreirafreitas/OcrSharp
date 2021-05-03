@@ -24,8 +24,11 @@ namespace OcrSharp.Service
     public class OcrFileService : IOcrFileService
     {
         private readonly IConfiguration _configuration;
+        private readonly ILogger _logger;
+        private readonly IHubContext<StreamingHub> _streaming;
+        private readonly int maxthreads = Convert.ToInt32(System.Math.Ceiling((Environment.ProcessorCount * 0.75) * 7.0));
 
-        public OcrFileService(IConfiguration configuration)
+        private class ThreadState
         {
             public InMemoryFile Image { get; set; }
             public TesseractEngine Engine { get; set; }
@@ -38,7 +41,7 @@ namespace OcrSharp.Service
             _streaming = hubContext;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Medium)
+        public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Low)
         {
             var filename = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
             _logger.LogInformation($"Pré-Processando a imagem {filename}");
@@ -48,13 +51,13 @@ namespace OcrSharp.Service
             return file;
         }
 
-        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
+        public async Task<InMemoryFile> ApplyOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Low)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
             _logger.LogInformation("Removendo ruídos, suavizando e rotacionando a imagem.");
-            var stResult = ImageForOcr(ref stream);
+            var stResult = ImageForOcr(stream);
             _logger.LogInformation("Pré-Processamento finalizado.");
             _logger.LogInformation($"Aplicando OCR na acurácia {accuracy}.");
             var file = await ProcessOcrAsync(stResult, accuracy);
@@ -70,7 +73,7 @@ namespace OcrSharp.Service
             return file;
         }
 
-        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Medium)
+        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Low)
         {
             string tessDataPath = string.Empty;
             EngineMode mode = EngineMode.Default;
@@ -95,7 +98,7 @@ namespace OcrSharp.Service
             Stopwatch watch = new Stopwatch();
 
             object locker = new object();
-            await images.AsyncParallelForEach(async image =>
+            await images.ParallelForEachAsync(async image =>
             {
                 watch.Start();
                 ++index;
@@ -184,7 +187,7 @@ namespace OcrSharp.Service
         private Task<InMemoryFile> ProcessImage(InMemoryFile image)
         {
             var stream = image.Content.ToStream();
-            var imageResult = ImageForOcr(ref stream);
+            var imageResult = ImageForOcr(stream);
             return Task.FromResult(new InMemoryFile
             {
                 Page = image.Page,
@@ -193,7 +196,7 @@ namespace OcrSharp.Service
             });
         }
 
-        private Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
+        private Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Low)
         {
             string tessDataPath = string.Empty;
             switch (accuracy)
@@ -209,7 +212,7 @@ namespace OcrSharp.Service
                     break;
             }
 
-            using var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.Default);
+            using var engine = new TesseractEngine(tessDataPath, "por", EngineMode.Default);
             using var image = Pix.LoadFromMemory(stream.ConvertToArray());
             using var page = engine.Process(image, PageSegMode.AutoOsd);
             engine.SetVariable("tessedit_write_images", true);
@@ -222,7 +225,7 @@ namespace OcrSharp.Service
             });
         }
 
-        private Stream ProcessDeskew(ref Bitmap tempImage)
+        private Stream ProcessDeskew(Bitmap tempImage)
         {
             Bitmap image;
             if (tempImage.PixelFormat.ToString().Equals("Format8bppIndexed"))
@@ -252,24 +255,19 @@ namespace OcrSharp.Service
             return ms;
         }
 
-        private Stream Deskew(ref Stream stream)
+        private Stream Deskew(Stream stream)
         {
             Bitmap bmp = new Bitmap(stream);
-            return ProcessDeskew(ref bmp);
+            return ProcessDeskew(bmp);
         }
 
-        private Stream Deskew(ref Bitmap image)
+        public Stream ImageForOcr(Stream stream)
         {
-            return ProcessDeskew(ref image);
+            var st = ProcessImageForOcr(stream);
+            return Deskew(st);
         }
 
-        public Stream ImageForOcr(ref Stream stream)
-        {
-            var st = ProcessImageForOcr(ref stream);
-            return Deskew(ref st);
-        }
-
-        private Stream ProcessImageForOcr(ref Stream stream)
+        private Stream ProcessImageForOcr(Stream stream)
         {
             using Bitmap bmp = new Bitmap(stream);
             using var image = bmp.ToImage<Gray, byte>();
@@ -296,7 +294,7 @@ namespace OcrSharp.Service
             return processedImage;
         }
 
-        private Image<Gray, byte> RemoveNoiseAndSmooth(ref Bitmap bmp)
+        private Image<Gray, byte> RemoveNoiseAndSmooth(Bitmap bmp)
         {
             const int imageSize = 1800;
             using Image<Gray, byte> image = bmp.ToImage<Gray, byte>();
