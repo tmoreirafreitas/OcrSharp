@@ -7,8 +7,8 @@ As funcionalidades são:
 * Obter o texto de uma página do arquivo (pdf).
 * Converter uma página em imagem (tiff).
 * Converter o arquivo (pdf) em múltiplas imagens (tiff).
-* Obter os dados OCR de uma ou mais imagens.
-* Obter um arquivo zip com um ou mais arquivos (txt) com resultados OCR de uma ou mais imagens.
+* Obter os dados OCR(texto e porcentagem de confiabilidade) de uma imagem.
+* Obter o texto OCR de uma imagem.
 
 ## EmguCV
 É uma wrapper cross plataforma .NET para a biblioteca OpenCV de código aberto para a visão computacional, processamento de imagem e aprendizagem de máquina, com aceleração de GPU para operação em tempo real.
