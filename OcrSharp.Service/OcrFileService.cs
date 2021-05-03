@@ -1,9 +1,9 @@
-﻿using ClosedXML.Excel;
-using Emgu.CV;
+﻿using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
-using Emgu.CV.Util;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
@@ -24,16 +24,30 @@ namespace OcrSharp.Service
     public class OcrFileService : IOcrFileService
     {
         private readonly IConfiguration _configuration;
+        private readonly ILogger _logger;
+        private readonly IHubContext<StreamingHub> _streaming;
+        private readonly int maxthreads = Convert.ToInt32(Math.Ceiling((Environment.ProcessorCount * 0.75) * 7.0));
 
-        public OcrFileService(IConfiguration configuration)
+        private class ThreadState
+        {
+            public InMemoryFile Image { get; set; }
+            public TesseractEngine Engine { get; set; }
+        }
+
+        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<StreamingHub> hubContext)
         {
             _configuration = configuration;
+            _logger = loggerFactory.CreateLogger<OcrFileService>();
+            _streaming = hubContext;
         }
 
         public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Medium)
-        {           
-            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream(), accuracy);
-            file.FileName = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";           
+        {
+            var filename = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
+            _logger.LogInformation($"Pré-Processando a imagem {filename}");
+            var file = await ApplyOcrAsync(inMemory.Content.ToStream(), accuracy);
+            file.FileName = filename;
+            file.Page = inMemory.Page;
             return file;
         }
 
@@ -42,19 +56,147 @@ namespace OcrSharp.Service
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
+            _logger.LogInformation("Removendo ruídos, suavizando e rotacionando a imagem.");
             var stResult = ImageForOcr(ref stream);
+            _logger.LogInformation("Pré-Processamento finalizado.");
+            _logger.LogInformation($"Aplicando OCR na acurácia {accuracy}.");
             var file = await ProcessOcrAsync(stResult, accuracy);
-
+            _logger.LogInformation("OCR finalizado.");
             stopWatch.Stop();
+
             TimeSpan ts = stopWatch.Elapsed;
             string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
             ts.Hours, ts.Minutes, ts.Seconds,
             ts.Milliseconds / 10);
+
             file.RunTime = elapsedTime;
             return file;
         }
 
-        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
+        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Medium)
+        {
+            string tessDataPath = string.Empty;
+            EngineMode mode = EngineMode.Default;
+            switch (accuracy)
+            {
+                case Accuracy.Hight:
+                    tessDataPath = _configuration["Tesseract:tessDataBest"];
+                    break;
+                case Accuracy.Low:
+                    tessDataPath = _configuration["Tesseract:tessDataFast"];
+                    break;
+                case Accuracy.Medium:
+                    tessDataPath = _configuration["Tesseract:tessData"];
+                    break;
+            }
+
+            _logger.LogInformation("Removendo ruídos, suavizando e rotacionando as imagens.");
+
+            var imagesProcessed = new List<InMemoryFile>();
+            var tasks = new List<Task>();
+            var index = 0;
+            Stopwatch watch = new Stopwatch();
+
+            object locker = new object();
+            await images.AsyncParallelForEach(async image =>
+            {
+                watch.Start();
+                ++index;
+                var imageResult = await ProcessImage(image);
+                lock (locker)
+                {
+                    imagesProcessed.Add(imageResult);
+
+                    if (index % maxthreads == 0 || index == images.Count)
+                    {
+                        watch.Stop();
+
+                        TimeSpan ts = watch.Elapsed;
+                        string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                        ts.Hours, ts.Minutes, ts.Seconds,
+                        ts.Milliseconds / 10);
+
+                        _streaming.Clients.Client(connectionId).SendAsync("OcrStatusImagemProcess", $"Foram pré-processadas {imagesProcessed.Count} páginas em {elapsedTime}").Wait();
+                    }
+                }
+
+            }, maxthreads);
+
+            images.Clear();
+            images = null;
+
+            _logger.LogInformation("Pré-Processamento finalizado.");
+
+            var ocrResult = new List<InMemoryFile>();
+            Stopwatch stopWatch = new Stopwatch();
+
+            var engines = new List<TesseractEngine>();
+            for (var i = 0; i < maxthreads; i++)
+                engines.Add(new TesseractEngine(tessDataPath, "por", mode));
+
+            var engineIndex = -1;
+            index = 0;
+
+            foreach (var image in imagesProcessed)
+            {
+                stopWatch.Start();
+                ++index;
+                ++engineIndex;
+                var engine = engines[engineIndex];
+
+                tasks.Add(Task.Factory.StartNew((object obj) =>
+                {
+                    var data = obj as ThreadState;
+                    if (data == null)
+                        return;
+
+                    using var pix = Pix.LoadFromMemory(data.Image.Content);
+                    using var page = data.Engine.Process(pix, PageSegMode.AutoOsd);
+                    engine.SetVariable("tessedit_write_images", true);
+                    var text = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline).Trim('\f', '\n');
+                    ocrResult.Add(new InMemoryFile
+                    {
+                        Content = Encoding.UTF8.GetBytes(text),
+                        Accuracy = Math.Round(page.GetMeanConfidence(), 2),
+                        AppliedOcr = true,
+                        Page = image.Page
+                    });
+                }, new ThreadState { Image = image, Engine = engines[engineIndex] }));
+
+                if (index % maxthreads == 0 || index == imagesProcessed.Count)
+                {
+                    engineIndex = -1;
+                    Task.WaitAll(tasks.ToArray());
+                    tasks.Clear();
+                    stopWatch.Stop();
+                    TimeSpan ts = stopWatch.Elapsed;
+                    string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                    ts.Hours, ts.Minutes, ts.Seconds,
+                    ts.Milliseconds / 10);
+
+                    var averageAccuracy = Math.Round(ocrResult.Where(x => x.Content.Length > 0 && x.Accuracy > 0).Average(x => x.Accuracy), 2);
+
+                    _streaming.Clients.Client(connectionId).SendAsync("OcrStatusData", $"Processado {ocrResult.Count} de {imagesProcessed.Count} páginas em {elapsedTime} AverageAccuracy: {averageAccuracy}").Wait();
+                }
+            }
+
+            index = 0;
+            return ocrResult.OrderBy(x => x.Page).ToList();
+        }
+
+        private Task<InMemoryFile> ProcessImage(InMemoryFile image)
+        {
+            var stream = image.Content.ToStream();
+            var imageResult = ImageForOcr(ref stream);
+            return Task.FromResult(new InMemoryFile
+            {
+                Page = image.Page,
+                FileName = image.FileName,
+                Content = imageResult.ConvertToArray()
+            });
+        }
+
+        private Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
         {
             string tessDataPath = string.Empty;
             switch (accuracy)
@@ -70,51 +212,47 @@ namespace OcrSharp.Service
                     break;
             }
 
-            using (var engine = new TesseractEngine(tessDataPath, "por", EngineMode.Default))
+            using var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.Default);
+            using var image = Pix.LoadFromMemory(stream.ConvertToArray());
+            using var page = engine.Process(image, PageSegMode.AutoOsd);
+            engine.SetVariable("tessedit_write_images", true);
+            var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
+            return Task.FromResult(new InMemoryFile
             {
-                using (var image = Pix.LoadFromMemory(await stream.StreamToArrayAsync()))
-                using (var page = engine.Process(image, PageSegMode.AutoOsd))
-                {
-                    var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
-                    return new InMemoryFile
-                    {
-                        Content = Encoding.UTF8.GetBytes(ocrResult),
-                        Accuracy = page.GetMeanConfidence(),
-                        AppliedOcr = true
-                    };
-                }
-            }
+                Content = Encoding.Convert(Encoding.Default, Encoding.UTF8, Encoding.UTF8.GetBytes(ocrResult)),
+                Accuracy = Math.Round(page.GetMeanConfidence(), 2),
+                AppliedOcr = true
+            });
         }
 
-        private Stream ProcessDeskew(ref Bitmap bitmap)
+        private Stream ProcessDeskew(ref Bitmap tempImage)
         {
-            using (var img = bitmap.ToImage<Gray, byte>())
-            using (var gray = img.ThresholdBinaryInv(new Gray(200), new Gray(255)).Dilate(5))
+            Bitmap image;
+            if (tempImage.PixelFormat.ToString().Equals("Format8bppIndexed"))
             {
-                using (VectorOfPoint points = new VectorOfPoint())
-                {
-                    CvInvoke.FindNonZero(gray, points);
-                    var minareaRect = CvInvoke.MinAreaRect(points);
-                    using (var rotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1))
-                    {
-                        using (var rotatedImage = img.CopyBlank())
-                        {
-                            if (minareaRect.Angle < -45)
-                            {
-                                minareaRect.Angle = 90 + minareaRect.Angle;
-                            }
+                image = tempImage;
+            }
+            else
+            {
+                image = AForge.Imaging.Filters.Grayscale.CommonAlgorithms.BT709.Apply(tempImage);
+            }
 
-                            CvInvoke.GetRotationMatrix2D(minareaRect.Center, minareaRect.Angle, 1.0, rotationMatrix);
-                            CvInvoke.WarpAffine(img, rotatedImage, rotationMatrix, img.Size, Inter.Cubic, borderMode: BorderType.Replicate);
+            AForge.Imaging.DocumentSkewChecker skewChecker = new AForge.Imaging.DocumentSkewChecker();
+            // get documents skew angle
+            double angle = skewChecker.GetSkewAngle(image);
+            // create rotation filter
+            AForge.Imaging.Filters.RotateBilinear rotationFilter = new AForge.Imaging.Filters.RotateBilinear(-angle);
+            rotationFilter.FillColor = Color.Black;
+            // rotate image applying the filter
+            Bitmap rotatedImage = rotationFilter.Apply(image);
 
-                            var stream = new MemoryStream();
-                            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
-                            stream.Position = 0;
-                            return stream;
-                        }
-                    }
-                }
-            }            
+            var ms = new MemoryStream();
+            rotatedImage.Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            ms.Position = 0;
+
+            image.Dispose();
+            rotatedImage.Dispose();
+            return ms;
         }
 
         private Stream Deskew(ref Stream stream)
@@ -122,13 +260,13 @@ namespace OcrSharp.Service
             Bitmap bmp = new Bitmap(stream);
             return ProcessDeskew(ref bmp);
         }
-        private Stream Deskew(string fileName)
+
+        private Stream Deskew(ref Bitmap image)
         {
-            Bitmap bmp = new Bitmap(fileName);
-            return ProcessDeskew(ref bmp);
+            return ProcessDeskew(ref image);
         }
 
-        private Stream ImageForOcr(ref Stream stream)
+        public Stream ImageForOcr(ref Stream stream)
         {
             var st = ProcessImageForOcr(ref stream);
             return Deskew(ref st);
@@ -136,217 +274,52 @@ namespace OcrSharp.Service
 
         private Stream ProcessImageForOcr(ref Stream stream)
         {
-            Image<Gray, byte> processedImage = null;
-            using (Bitmap bmp = new Bitmap(stream))
-                processedImage = RemoveNoiseAndSmooth(bmp);
+            using Bitmap bmp = new Bitmap(stream);
+            using var image = bmp.ToImage<Gray, byte>();
+            var imageSmoothening = ImageSmoothening(image);
 
             var ms = new MemoryStream();
-            processedImage.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            imageSmoothening.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
             ms.Position = 0;
-            processedImage.Dispose();
             return ms;
         }
 
-        private Image<Gray, byte> ImageSmoothening(ref Image<Gray, byte> image)
+        private Image<Gray, byte> ImageSmoothening(Image<Gray, byte> image)
         {
+            using var src = image.Copy();
             const int binaryThreshold = 127;
             var processedImage = image.CopyBlank();
 
-            CvInvoke.Threshold(image, processedImage, binaryThreshold, 255, ThresholdType.Binary);
+            CvInvoke.Threshold(src, processedImage, binaryThreshold, 255, ThresholdType.Binary);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
             CvInvoke.GaussianBlur(processedImage, processedImage, new Size(1, 1), 0);
+
+            //processedImage = processedImage.Erode(1).Dilate(1);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
             return processedImage;
         }
 
-        private Image<Gray, byte> RemoveNoiseAndSmooth(Bitmap bmp)
+        private Image<Gray, byte> RemoveNoiseAndSmooth(ref Bitmap bmp)
         {
             const int imageSize = 1800;
-            Image<Gray, byte> image = bmp.ToImage<Gray, byte>();
+            using Image<Gray, byte> image = bmp.ToImage<Gray, byte>();
             var factor = Math.Max(1, imageSize / image.Width);
             image.Resize(image.Width * factor, image.Height * factor, Inter.Cubic, true);
 
-            var filtered = image.CopyBlank();
-            var opening = image.CopyBlank();
-            var closing = image.CopyBlank();
+            using var filtered = image.CopyBlank();
+            using var opening = image.CopyBlank();
+            using var closing = image.CopyBlank();
+            CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.GaussianC, ThresholdType.Binary, 85, 11);
+            //CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.MeanC, ThresholdType.Binary, 41, 3);
 
-            //CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.GaussianC, ThresholdType.Binary, 85, 11);           
-
-            CvInvoke.AdaptiveThreshold(image, filtered, 255, AdaptiveThresholdType.MeanC, ThresholdType.Binary, 41, 3);
-            var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(1, 1), new Point(-1, -1));
+            using var kernel = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(1, 1), new Point(-1, -1));
             CvInvoke.MorphologyEx(filtered, opening, MorphOp.Open, kernel, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(1.0));
             CvInvoke.MorphologyEx(opening, closing, MorphOp.Close, kernel, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(1.0));
 
-            var imageSmoothening = ImageSmoothening(ref closing);
+            using var imageSmoothening = ImageSmoothening(closing);
             var orImage = image.CopyBlank();
             CvInvoke.BitwiseOr(imageSmoothening, closing, orImage);
             return orImage;
-        }
-
-        public InMemoryFile TextDetectionAndRecognitionToConvertTables(string fullFileName, int NoCols = 4, 
-            float MorphThrehold = 30f, int binaryThreshold = 200, int offset = 5, double factor = 2.5, Accuracy accuracy = Accuracy.Medium)
-        {
-            Deskew(fullFileName);
-            InMemoryFile file = null;
-            using (var bmp = new Bitmap(fullFileName))
-            {
-                using (var image = bmp.ToImage<Gray, byte>()
-                     .Resize(factor, Inter.Cubic)
-                     .ThresholdBinaryInv(new Gray(binaryThreshold), new Gray(255)))
-                {
-                    int length = (int)(image.Width * MorphThrehold / 100);
-
-                    Mat vProfile = new Mat();
-                    Mat hProfile = new Mat();
-
-                    var kernelV = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(1, length), new Point(-1, -1));
-                    var kernelH = CvInvoke.GetStructuringElement(ElementShape.Rectangle, new Size(length, 1), new Point(-1, -1));
-
-                    CvInvoke.Erode(image, vProfile, kernelV, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(255));
-                    CvInvoke.Dilate(vProfile, vProfile, kernelV, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(255));
-
-                    CvInvoke.Erode(image, hProfile, kernelH, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(255));
-                    CvInvoke.Dilate(hProfile, hProfile, kernelH, new Point(-1, -1), 1, BorderType.Default, new MCvScalar(255));
-
-                    var mergedImage = vProfile.ToImage<Gray, byte>().Or(hProfile.ToImage<Gray, byte>());
-                    mergedImage._ThresholdBinary(new Gray(1), new Gray(255));
-
-                    VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint();
-                    Mat h = new Mat();
-
-                    CvInvoke.FindContours(mergedImage, contours, h, RetrType.External, ChainApproxMethod.ChainApproxSimple);
-                    int bigCID = GetBiggestContourID(contours);
-                    var bbox = CvInvoke.BoundingRectangle(contours[bigCID]);
-
-                    mergedImage.ROI = bbox;
-                    image.ROI = bbox;
-                    var temp = mergedImage.Copy();
-                    temp._Not();
-
-                    var imgTable = image.Copy();
-                    contours.Clear();
-
-                    CvInvoke.FindContours(temp, contours, h, RetrType.External, ChainApproxMethod.ChainApproxSimple);
-                    var filtercontours = FilterContours(contours, 500);
-                    var bboxList = Contours2BBox(filtercontours);
-                    var sortedBBoxes = bboxList.OrderBy(x => x.Y).ThenBy(y => y.X).ToList();
-
-                    var folder = Path.GetDirectoryName(fullFileName);
-                    imgTable.Save(Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(fullFileName)}_processed.tiff"));
-                    using (var workbook = new XLWorkbook())
-                    {
-                        var worksheet = workbook.Worksheets.Add("Outputs");
-
-                        int rowCounter = 1;
-                        char colCounter = 'A';
-
-                        for (int i = 0; i < sortedBBoxes.Count; i++)
-                        {
-                            var rect = sortedBBoxes[i];
-                            rect.X += offset;
-                            rect.Y += offset;
-                            rect.Width -= offset;
-                            rect.Height -= offset;
-
-                            imgTable.ROI = rect;
-
-                            string tessDataPath = string.Empty;
-                            switch (accuracy)
-                            {
-                                case Accuracy.Hight:
-                                    tessDataPath = _configuration["Tesseract:tessDataBest"];
-                                    break;
-                                case Accuracy.Low:
-                                    tessDataPath = _configuration["Tesseract:tessDataFast"];
-                                    break;
-                                case Accuracy.Medium:
-                                    tessDataPath = _configuration["Tesseract:tessData"];
-                                    break;
-                            }
-
-                            using (var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.TesseractAndLstm))
-                            {
-                                engine.DefaultPageSegMode = PageSegMode.SingleBlock;
-                                using (var page = engine.Process(Pix.LoadFromMemory(imgTable.Copy().ToJpegData())))
-                                {
-                                    byte[] bytes = Encoding.Default.GetBytes(page.GetText());
-                                    var text = Encoding.UTF8.GetString(bytes).Replace("\r\n", "");
-
-                                    if (i % NoCols == 0)
-                                    {
-                                        if (i > 0)
-                                        {
-                                            rowCounter++;
-                                        }
-                                        colCounter = 'A';
-                                        worksheet.Cell(colCounter.ToString() + rowCounter.ToString()).Value = text;
-                                    }
-                                    else
-                                    {
-                                        colCounter++;
-                                        worksheet.Cell(colCounter + rowCounter.ToString()).Value = text;
-                                    }
-                                    imgTable.ROI = Rectangle.Empty;
-                                }
-                            }
-                        }
-
-                        using (var stream = new MemoryStream())
-                        {
-                            workbook.SaveAs(stream);
-                            stream.Position = 0;
-                            file = new InMemoryFile
-                            {
-                                FileName = $@"OcrTableToText_{Path.GetFileNameWithoutExtension(fullFileName)}_{DateTime.Now.GetDateNowEngFormat()}.xlsx",
-                                Content = stream.ToArray()
-                            };
-                        }
-                    }
-                }
-            }
-
-            return file;
-        }
-
-        private int GetBiggestContourID(VectorOfVectorOfPoint contours)
-        {
-            double maxArea = double.MaxValue * (-1);
-            int contourId = -1;
-            for (int i = 0; i < contours.Size; i++)
-            {
-                double area = CvInvoke.ContourArea(contours[i]);
-                if (area > maxArea)
-                {
-                    maxArea = area;
-                    contourId = i;
-                }
-            }
-            return contourId;
-        }
-
-        private VectorOfVectorOfPoint FilterContours(VectorOfVectorOfPoint contours, double threshold = 50)
-        {
-            VectorOfVectorOfPoint filteredContours = new VectorOfVectorOfPoint();
-            for (int i = 0; i < contours.Size; i++)
-            {
-                if (CvInvoke.ContourArea(contours[i]) >= threshold)
-                {
-                    filteredContours.Push(contours[i]);
-                }
-            }
-
-            return filteredContours;
-        }
-
-        private List<Rectangle> Contours2BBox(VectorOfVectorOfPoint contours)
-        {
-            List<Rectangle> list = new List<Rectangle>();
-            for (int i = 0; i < contours.Size; i++)
-            {
-                list.Add(CvInvoke.BoundingRectangle(contours[i]));
-            }
-
-            return list;
         }
     }
 }
