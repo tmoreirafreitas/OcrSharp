@@ -7,7 +7,7 @@ namespace OcrSharp.Domain.Entities
         public int PageNumber { get; private set; }
         public string Content { get; private set; }
         public bool AppliedOcr { get; set; }
-        public float Accuracy { get; set; }
+        public double Accuracy { get; set; }
         public string RunTime { get; set; }
 
         public DocumentPage(int pageNumber, string text, bool appliedOcr = false)

@@ -1,6 +1,7 @@
 ﻿using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using OcrSharp.Domain;
@@ -23,20 +24,27 @@ namespace OcrSharp.Service
     public class OcrFileService : IOcrFileService
     {
         private readonly IConfiguration _configuration;
-        private readonly ILogger _logger;
 
-        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory)
+        public OcrFileService(IConfiguration configuration)
+        {
+            public InMemoryFile Image { get; set; }
+            public TesseractEngine Engine { get; set; }
+        }
+
+        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<StreamingHub> hubContext)
         {
             _configuration = configuration;
             _logger = loggerFactory.CreateLogger<OcrFileService>();
+            _streaming = hubContext;
         }
 
         public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Medium)
         {
             var filename = $"{Path.GetFileNameWithoutExtension(inMemory.FileName)}.txt";
             _logger.LogInformation($"Pré-Processando a imagem {filename}");
-            var file = await ApplyOcrAsync(inMemory.Content.ArrayToStream(), accuracy);
+            var file = await ApplyOcrAsync(inMemory.Content.ToStream(), accuracy);
             file.FileName = filename;
+            file.Page = inMemory.Page;
             return file;
         }
 
@@ -62,7 +70,130 @@ namespace OcrSharp.Service
             return file;
         }
 
-        private async Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
+        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Medium)
+        {
+            string tessDataPath = string.Empty;
+            EngineMode mode = EngineMode.Default;
+            switch (accuracy)
+            {
+                case Accuracy.Hight:
+                    tessDataPath = _configuration["Tesseract:tessDataBest"];
+                    break;
+                case Accuracy.Low:
+                    tessDataPath = _configuration["Tesseract:tessDataFast"];
+                    break;
+                case Accuracy.Medium:
+                    tessDataPath = _configuration["Tesseract:tessData"];
+                    break;
+            }
+
+            _logger.LogInformation("Removendo ruídos, suavizando e rotacionando as imagens.");
+
+            var imagesProcessed = new List<InMemoryFile>();
+            var tasks = new List<Task>();
+            var index = 0;
+            Stopwatch watch = new Stopwatch();
+
+            object locker = new object();
+            await images.AsyncParallelForEach(async image =>
+            {
+                watch.Start();
+                ++index;
+                var imageResult = await ProcessImage(image);
+                lock (locker)
+                {
+                    imagesProcessed.Add(imageResult);
+
+                    if (index % maxthreads == 0 || index == images.Count)
+                    {
+                        watch.Stop();
+
+                        TimeSpan ts = watch.Elapsed;
+                        string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                        ts.Hours, ts.Minutes, ts.Seconds,
+                        ts.Milliseconds / 10);
+
+                        _streaming.Clients.Client(connectionId).SendAsync("OcrStatusImagemProcess", $"Foram pré-processadas {imagesProcessed.Count} páginas em {elapsedTime}").Wait();
+                    }
+                }
+
+            }, maxthreads);
+
+            images.Clear();
+            images = null;
+
+            _logger.LogInformation("Pré-Processamento finalizado.");
+
+            var ocrResult = new List<InMemoryFile>();
+            Stopwatch stopWatch = new Stopwatch();
+
+            var engines = new List<TesseractEngine>();
+            for (var i = 0; i < maxthreads; i++)
+                engines.Add(new TesseractEngine(tessDataPath, "por", mode));
+
+            var engineIndex = -1;
+            index = 0;
+
+            foreach (var image in imagesProcessed)
+            {
+                stopWatch.Start();
+                ++index;
+                ++engineIndex;
+                var engine = engines[engineIndex];
+
+                tasks.Add(Task.Factory.StartNew((object obj) =>
+                {
+                    var data = obj as ThreadState;
+                    if (data == null)
+                        return;
+
+                    using var pix = Pix.LoadFromMemory(data.Image.Content);
+                    using var page = data.Engine.Process(pix, PageSegMode.AutoOsd);
+                    engine.SetVariable("tessedit_write_images", true);
+                    var text = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline).Trim('\f', '\n');
+                    ocrResult.Add(new InMemoryFile
+                    {
+                        Content = Encoding.UTF8.GetBytes(text),
+                        Accuracy = Math.Round(page.GetMeanConfidence(), 2),
+                        AppliedOcr = true,
+                        Page = image.Page
+                    });
+                }, new ThreadState { Image = image, Engine = engines[engineIndex] }));
+
+                if (index % maxthreads == 0 || index == imagesProcessed.Count)
+                {
+                    engineIndex = -1;
+                    Task.WaitAll(tasks.ToArray());
+                    tasks.Clear();
+                    stopWatch.Stop();
+                    TimeSpan ts = stopWatch.Elapsed;
+                    string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                    ts.Hours, ts.Minutes, ts.Seconds,
+                    ts.Milliseconds / 10);
+
+                    var averageAccuracy = Math.Round(ocrResult.Where(x => x.Content.Length > 0 && x.Accuracy > 0).Average(x => x.Accuracy), 2);
+
+                    _streaming.Clients.Client(connectionId).SendAsync("OcrStatusData", $"Processado {ocrResult.Count} de {imagesProcessed.Count} páginas em {elapsedTime} AverageAccuracy: {averageAccuracy}").Wait();
+                }
+            }
+
+            index = 0;
+            return ocrResult.OrderBy(x => x.Page).ToList();
+        }
+
+        private Task<InMemoryFile> ProcessImage(InMemoryFile image)
+        {
+            var stream = image.Content.ToStream();
+            var imageResult = ImageForOcr(ref stream);
+            return Task.FromResult(new InMemoryFile
+            {
+                Page = image.Page,
+                FileName = image.FileName,
+                Content = imageResult.ConvertToArray()
+            });
+        }
+
+        private Task<InMemoryFile> ProcessOcrAsync(Stream stream, Accuracy accuracy = Accuracy.Medium)
         {
             string tessDataPath = string.Empty;
             switch (accuracy)
@@ -79,91 +210,46 @@ namespace OcrSharp.Service
             }
 
             using var engine = new TesseractEngine(tessDataPath, "por+eng", EngineMode.Default);
-            using var image = Pix.LoadFromMemory(await stream.StreamToArrayAsync());
+            using var image = Pix.LoadFromMemory(stream.ConvertToArray());
             using var page = engine.Process(image, PageSegMode.AutoOsd);
             engine.SetVariable("tessedit_write_images", true);
-            var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty);
-            return new InMemoryFile
+            var ocrResult = Regex.Replace(page.GetText(), @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
+            return Task.FromResult(new InMemoryFile
             {
-                Content = Encoding.UTF8.GetBytes(ocrResult),
-                Accuracy = page.GetMeanConfidence(),
+                Content = Encoding.Convert(Encoding.Default, Encoding.UTF8, Encoding.UTF8.GetBytes(ocrResult)),
+                Accuracy = Math.Round(page.GetMeanConfidence(), 2),
                 AppliedOcr = true
-            };
+            });
         }
 
-        private Stream ProcessDeskew(ref Bitmap bitmap, double maxSkew = 20.0)
+        private Stream ProcessDeskew(ref Bitmap tempImage)
         {
-            Image<Gray, byte> rotatedImage = null;
-            var stream = new MemoryStream();
-            using (bitmap)
+            Bitmap image;
+            if (tempImage.PixelFormat.ToString().Equals("Format8bppIndexed"))
             {
-                using var image = bitmap.ToImage<Gray, byte>();
-                rotatedImage = image.CopyBlank();
-                CvInvoke.FastNlMeansDenoising(image, rotatedImage);
-                CvInvoke.Threshold(image, rotatedImage, 127, 255, ThresholdType.BinaryInv | ThresholdType.Otsu);
-                rotatedImage = rotatedImage.Dilate(5);
-
-                var allAngles = new List<double>();
-                var wearableAngles = new List<double>();
-                var lines = CvInvoke.HoughLinesP(rotatedImage, 1, Math.PI / 180, 100, minLineLength: image.Width / 12, maxGap: image.Width / 150);
-
-                foreach (var line in lines)
-                {
-                    var x1 = line.P1.X;
-                    var y1 = line.P1.Y;
-                    var x2 = line.P2.X;
-                    var y2 = line.P2.Y;
-                    allAngles.Add(Math.Atan2(y2 - y1, x2 - x1));
-                }
-
-                //Se a maioria de nossas linhas são verticais, esta provavelmente é uma imagem de paisagem.
-                var landscape = allAngles.Where(angle => Math.Abs(angle) > (Math.PI / 4)).Sum() > allAngles.Count / 2;
-
-                if (landscape)
-                {
-                    wearableAngles = allAngles.Where(angle => ConvertToRadians(90 - maxSkew) < Math.Abs(angle) && Math.Abs(angle) < ConvertToRadians(90 + maxSkew)).ToList();
-                }
-                else
-                {
-                    wearableAngles = allAngles.Where(angle => Math.Abs(angle) < ConvertToRadians(maxSkew)).ToList();
-                }
-
-                var angle = 0.0;
-                if (wearableAngles.Count > 5)
-                {
-                    angle = ConvertRadiansToDegrees(wearableAngles.Average());
-                }
-
-                if (landscape)
-                {
-                    if (angle < 0)
-                    {
-                        CvInvoke.Rotate(image, rotatedImage, RotateFlags.Rotate90Clockwise);
-                        angle += 90;
-                    }
-                    else if (angle > 0)
-                    {
-                        CvInvoke.Rotate(image, rotatedImage, RotateFlags.Rotate90CounterClockwise);
-                        angle -= 90;
-                    }
-                }
-
-                using var rotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1);
-                CvInvoke.GetRotationMatrix2D(new PointF(image.Width / 2, image.Height / 2), angle, 1.0, rotationMatrix);
-                CvInvoke.WarpAffine(image, rotatedImage, rotationMatrix, image.Size, Inter.Cubic, borderMode: BorderType.Replicate);
-
-                allAngles.Clear();
-                wearableAngles.Clear();
-                lines = null;
-                allAngles = null;
-                wearableAngles = null;
+                image = tempImage;
+            }
+            else
+            {
+                image = AForge.Imaging.Filters.Grayscale.CommonAlgorithms.BT709.Apply(tempImage);
             }
 
-            rotatedImage.Convert<Bgr, byte>().ToBitmap().Save(stream, System.Drawing.Imaging.ImageFormat.Tiff);
-            stream.Position = 0;
+            AForge.Imaging.DocumentSkewChecker skewChecker = new AForge.Imaging.DocumentSkewChecker();
+            // get documents skew angle
+            double angle = skewChecker.GetSkewAngle(image);
+            // create rotation filter
+            AForge.Imaging.Filters.RotateBilinear rotationFilter = new AForge.Imaging.Filters.RotateBilinear(-angle);
+            rotationFilter.FillColor = Color.Black;
+            // rotate image applying the filter
+            Bitmap rotatedImage = rotationFilter.Apply(image);
+
+            var ms = new MemoryStream();
+            rotatedImage.Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            ms.Position = 0;
+
+            image.Dispose();
             rotatedImage.Dispose();
-            rotatedImage = null;
-            return stream;
+            return ms;
         }
 
         private Stream Deskew(ref Stream stream)
@@ -172,7 +258,12 @@ namespace OcrSharp.Service
             return ProcessDeskew(ref bmp);
         }
 
-        private Stream ImageForOcr(ref Stream stream)
+        private Stream Deskew(ref Bitmap image)
+        {
+            return ProcessDeskew(ref image);
+        }
+
+        public Stream ImageForOcr(ref Stream stream)
         {
             var st = ProcessImageForOcr(ref stream);
             return Deskew(ref st);
@@ -181,9 +272,11 @@ namespace OcrSharp.Service
         private Stream ProcessImageForOcr(ref Stream stream)
         {
             using Bitmap bmp = new Bitmap(stream);
-            using var processedImage = RemoveNoiseAndSmooth(bmp);
+            using var image = bmp.ToImage<Gray, byte>();
+            var imageSmoothening = ImageSmoothening(image);
+
             var ms = new MemoryStream();
-            processedImage.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            imageSmoothening.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
             ms.Position = 0;
             return ms;
         }
@@ -196,14 +289,14 @@ namespace OcrSharp.Service
 
             CvInvoke.Threshold(src, processedImage, binaryThreshold, 255, ThresholdType.Binary);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
-            CvInvoke.GaussianBlur(processedImage, processedImage, new Size(7, 7), 5, 5);
+            CvInvoke.GaussianBlur(processedImage, processedImage, new Size(1, 1), 0);
 
-            processedImage = processedImage.Erode(1).Dilate(1);
+            //processedImage = processedImage.Erode(1).Dilate(1);
             CvInvoke.Threshold(processedImage, processedImage, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
             return processedImage;
         }
 
-        private Image<Gray, byte> RemoveNoiseAndSmooth(Bitmap bmp)
+        private Image<Gray, byte> RemoveNoiseAndSmooth(ref Bitmap bmp)
         {
             const int imageSize = 1800;
             using Image<Gray, byte> image = bmp.ToImage<Gray, byte>();
@@ -224,16 +317,6 @@ namespace OcrSharp.Service
             var orImage = image.CopyBlank();
             CvInvoke.BitwiseOr(imageSmoothening, closing, orImage);
             return orImage;
-        }
-
-        private double ConvertToRadians(double angle)
-        {
-            return (Math.PI / 180) * angle;
-        }
-
-        private double ConvertRadiansToDegrees(double radians)
-        {
-            return (180 / Math.PI) * radians;
         }
     }
 }

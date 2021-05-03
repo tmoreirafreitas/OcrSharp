@@ -4,21 +4,28 @@
     <TargetFramework>netstandard2.1</TargetFramework>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <DocnetRuntime Condition=" '$([MSBuild]::IsOsPlatform(Windows))' ">win-x64</DocnetRuntime>
+  </PropertyGroup>
+  
   <ItemGroup>
+    <PackageReference Include="AForge.Imaging.NetStandard" Version="2.2.5" />
+    <PackageReference Include="AForge.Math.NetStandard" Version="2.2.5" />
+    <PackageReference Include="AForge.NetStandard" Version="2.2.5" />
     <PackageReference Include="ClosedXML" Version="0.95.4" />
+    <PackageReference Include="Docnet.Core" Version="2.2.0" />
     <PackageReference Include="Emgu.CV" Version="4.5.1.4349" />
     <PackageReference Include="Emgu.CV.Bitmap" Version="4.5.1.4349" />
     <PackageReference Include="Emgu.CV.runtime.windows" Version="4.5.1.4349" />
     <PackageReference Include="Hueppauff.PdfiumViewer.Core" Version="1.0.19172.6" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="5.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="5.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="5.0.0" />
-    <PackageReference Include="PDFiumSharpV2" Version="1.0.0" />
-    <PackageReference Include="PdfPig" Version="0.1.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="System.Linq.Async" Version="5.0.0" />
     <PackageReference Include="System.Threading.Tasks.Dataflow" Version="5.0.0" />
     <PackageReference Include="Tesseract" Version="4.1.1" />
-    <PackageReference Include="TesseractSharp" Version="1.1.7" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,9 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="lib\pdfium.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Update="tessdata\eng.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
