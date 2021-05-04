@@ -188,28 +188,6 @@ namespace OcrSharp.Api.Controllers
             return Ok(textResult);
         }
 
-        [Consumes("multipart/form-data")]
-        [HttpPut("pdf/extract-text/accuracy/{accuracy}/connectionId/{connectionId}")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult ExtractText(IFormFile inputFile, string connectionId, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken))
-        {
-            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
-
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
-            {
-                FileName = inputFile.FileName,
-                Content = st.ConvertToArray(cancellationToken),
-            };
-
-            Task.Factory.StartNew(async () => await _documentService.ExtractTextFromPdf(connectionId, inMemory, accuracy, cancellationToken));
-
-            return Ok("Arquivo enviado para extração dos textos, por favor aguarde um momento");
-        }
-
         private FileStreamResult ConfigurationFileStreamToDownload(Stream file, string fileName, string contentType)
         {
             HttpContext.Response.Headers.Add("Content-Type", contentType);

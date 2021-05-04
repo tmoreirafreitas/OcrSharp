@@ -6,8 +6,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
+using OcrSharp.Domain.Interfaces.Hubs;
 using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
+using OcrSharp.Service.Hubs;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,8 +27,8 @@ namespace OcrSharp.Service
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger _logger;
-        private readonly IHubContext<StreamingHub> _streaming;
-        private readonly int maxthreads = Convert.ToInt32(System.Math.Ceiling((Environment.ProcessorCount * 0.75) * 7.0));
+        private readonly IHubContext<ImagesMessageHub, IStreaming> _hubContext;
+        private readonly int maxthreads = Convert.ToInt32(Math.Ceiling((Environment.ProcessorCount * 0.75) * 7.0));
 
         private class ThreadState
         {
@@ -34,11 +36,11 @@ namespace OcrSharp.Service
             public TesseractEngine Engine { get; set; }
         }
 
-        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<StreamingHub> hubContext)
+        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IStreaming> hubContext)
         {
             _configuration = configuration;
             _logger = loggerFactory.CreateLogger<OcrFileService>();
-            _streaming = hubContext;
+            _hubContext = hubContext;
         }
 
         public async Task<InMemoryFile> ApplyOcrAsync(InMemoryFile inMemory, Accuracy accuracy = Accuracy.Low)
@@ -73,7 +75,7 @@ namespace OcrSharp.Service
             return file;
         }
 
-        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy = Accuracy.Low)
+        public async Task<IList<InMemoryFile>> ApplyOcrAsync(string connectionId, IList<InMemoryFile> images, Accuracy accuracy)
         {
             string tessDataPath = string.Empty;
             EngineMode mode = EngineMode.Default;
@@ -116,7 +118,7 @@ namespace OcrSharp.Service
                         ts.Hours, ts.Minutes, ts.Seconds,
                         ts.Milliseconds / 10);
 
-                        _streaming.Clients.Client(connectionId).SendAsync("OcrStatusImagemProcess", $"Foram pré-processadas {imagesProcessed.Count} páginas em {elapsedTime}").Wait();
+                        _hubContext.Clients.Client(connectionId).ImageMessage($"Foram pré-processadas {imagesProcessed.Count} páginas em {elapsedTime}", StatusMensagem.INFORMATIVO).Wait();
                     }
                 }
 
@@ -132,7 +134,9 @@ namespace OcrSharp.Service
 
             var engines = new List<TesseractEngine>();
             for (var i = 0; i < maxthreads; i++)
+            {
                 engines.Add(new TesseractEngine(tessDataPath, "por", mode));
+            }
 
             var engineIndex = -1;
             index = 0;
@@ -176,7 +180,7 @@ namespace OcrSharp.Service
 
                     var averageAccuracy = Math.Round(ocrResult.Where(x => x.Content.Length > 0 && x.Accuracy > 0).Average(x => x.Accuracy), 2);
 
-                    _streaming.Clients.Client(connectionId).SendAsync("OcrStatusData", $"Processado {ocrResult.Count} de {imagesProcessed.Count} páginas em {elapsedTime} AverageAccuracy: {averageAccuracy}").Wait();
+                    _hubContext.Clients.Client(connectionId).ImageMessage($"Processado {ocrResult.Count} de {imagesProcessed.Count} páginas em {elapsedTime} AverageAccuracy: {averageAccuracy}", StatusMensagem.INFORMATIVO).Wait();
                 }
             }
 

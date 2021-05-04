@@ -11,7 +11,7 @@ namespace OcrSharp.Domain.Interfaces.Services
         Task<InMemoryFile> ConvertMultiplePdfToImageAsync(IEnumerable<InMemoryFile> fileCollection, CancellationToken cancellationToken = default(CancellationToken));
         InMemoryFile ConvertPdfPageToImageAsync(InMemoryFile file, int pageNumber);
         Task<DocumentPage> ExtracTextFromPdfPageAsync(InMemoryFile file, int pageNumber, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken));
-        Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken));
+        Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy);
         Task<Stream> ConvertPdfFileToImagesZippedAsync(InMemoryFile file);
         int GetNumberOfPages(InMemoryFile file);
     }

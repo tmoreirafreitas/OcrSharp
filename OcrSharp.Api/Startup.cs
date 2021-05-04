@@ -8,8 +8,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using OcrSharp.Api.Setup;
 using OcrSharp.Infra.CrossCutting.IoC.Extensions;
-using OcrSharp.Service;
+using OcrSharp.Service.Hubs;
 using Swashbuckle.AspNetCore.SwaggerUI;
+using System;
 
 namespace OcrSharp.Api
 {
@@ -37,7 +38,14 @@ namespace OcrSharp.Api
             });
 
             services.InstallServicesInAssembly(Configuration);
-            services.AddSignalR();
+            services.AddSignalR(hubOptions =>
+            {
+                hubOptions.EnableDetailedErrors = true;
+                hubOptions.KeepAliveInterval = TimeSpan.FromHours(24);
+                hubOptions.MaximumReceiveMessageSize = 1073741824;
+            })
+            .AddJsonProtocol()
+            .AddMessagePackProtocol();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -73,7 +81,7 @@ namespace OcrSharp.Api
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
-                endpoints.MapHub<StreamingHub>("/StreamingHub");
+                endpoints.MapHub<ImagesMessageHub>("/ImagesMessageHub");
             });
         }
     }

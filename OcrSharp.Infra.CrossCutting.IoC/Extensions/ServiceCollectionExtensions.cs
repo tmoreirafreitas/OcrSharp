@@ -29,11 +29,6 @@ namespace OcrSharp.Infra.CrossCutting.IoC.Extensions
             return assemblies.ToArray();
         }
 
-        public static void AddAutoMapperConfig(this IServiceCollection services)
-        {
-            //services.AddAutoMapper(AllAssemblies);
-        }
-
         public static void UseRepositoriesAndServices(this IServiceCollection services, ServiceLifetime lifetime = ServiceLifetime.Scoped)
         {
             var classesImplementingInterfaces = AllAssemblies.SelectMany(t =>

@@ -4,11 +4,12 @@ using Docnet.Core.Models;
 using Docnet.Core.Readers;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using OcrSharp.Domain;
 using OcrSharp.Domain.Entities;
+using OcrSharp.Domain.Interfaces.Hubs;
 using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
+using OcrSharp.Service.Hubs;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,15 +30,15 @@ namespace OcrSharp.Service
     {
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IOcrFileService _ocrFileService;
-        private readonly IHubContext<StreamingHub> _streaming;
+        private readonly IHubContext<ImagesMessageHub, IStreaming> _hubContext;
         private readonly ILogger _logger;
 
         public DocumentFileService(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService,
-            ILoggerFactory loggerFactory, IHubContext<StreamingHub> streamingHub)
+            ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IStreaming> hubContext)
         {
             _fileUtilityService = fileUtilityService;
             _ocrFileService = ocrFileService;
-            _streaming = streamingHub;
+            _hubContext = hubContext;
             _logger = loggerFactory.CreateLogger<DocumentFileService>();
         }
 
@@ -106,12 +107,12 @@ namespace OcrSharp.Service
             return numberOfPages;
         }
 
-        public async Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<DocumentFile> ExtractTextFromPdf(string connectionId, InMemoryFile file, Accuracy accuracy)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
 
-            _streaming.Clients.Client(connectionId).SendAsync("OcrStatusImagemProcess", $"Iniciando extração do texto do documento: {file.FileName} em {DateTime.Now:dd/MM/yyyy HH:mm:ss.ff}").Wait();
+            _hubContext.Clients.Client(connectionId).ImageMessage($"Iniciando extração do texto do documento: {file.FileName} em {DateTime.Now:dd/MM/yyyy HH:mm:ss.ff}", StatusMensagem.INFORMATIVO).Wait();
 
             using var doc = DocLib.Instance.GetDocReader(file.Content, new PageDimensions(1080, 1920));
             var numberOfPages = doc.GetPageCount();
@@ -137,7 +138,7 @@ namespace OcrSharp.Service
                     el.Hours, el.Minutes, el.Seconds,
                     el.Milliseconds / 10);
 
-                    _streaming.Clients.Client(connectionId).SendAsync("OcrStatusImagemProcess", $"Foram convertidas {images.Count} de {numberOfPages} páginas em imagem. Tempo decorrido: {strElapsedTime}").Wait();
+                    _hubContext.Clients.Client(connectionId).ImageMessage($"Foram convertidas {images.Count} de {numberOfPages} páginas em imagem. Tempo decorrido: {strElapsedTime}", StatusMensagem.INFORMATIVO);
                     stopWatch.Start();
                 }
                 return Task.CompletedTask;
@@ -147,7 +148,6 @@ namespace OcrSharp.Service
 
             foreach (var ocr in ocrResult)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 var currentText = Encoding.UTF8.GetString(ocr.Content);
                 pdf.Pages.Add(new DocumentPage(ocr.Page, currentText, ocr.AppliedOcr)
                 {
@@ -157,15 +157,7 @@ namespace OcrSharp.Service
             }
 
             stopWatch.Stop();
-            TimeSpan ts = stopWatch.Elapsed;
-            string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
-            ts.Hours, ts.Minutes, ts.Seconds,
-            ts.Milliseconds / 10);
-
-            _streaming.Clients.Client(connectionId).SendAsync("OcrTotalTimeProcessData", $"Tempo total de processamento: {elapsedTime}", cancellationToken).Wait();
-            string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(pdf));
-            _streaming.Clients.Client(connectionId).SendAsync("OcrResultData", jsonData, cancellationToken).Wait();
-            return pdf;//Task.FromResult(pdf);
+            return pdf;
         }
 
         public async Task<Stream> ConvertPdfFileToImagesZippedAsync(InMemoryFile file)
