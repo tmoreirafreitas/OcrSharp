@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Service.Hubs
 {
-    public class ImagesMessageHub : Hub<IStreaming>
+    public class ImagesMessageHub : Hub<IImagesMessageHub>
     {
         private readonly IDocumentFileService _documentService;
         private readonly ILogger _logger;

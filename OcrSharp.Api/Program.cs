@@ -17,7 +17,6 @@ namespace OcrSharp.Api
                 {
                     webBuilder
                     .UseContentRoot(Directory.GetCurrentDirectory())
-                    .UseWebRoot("wwwroot")
                     .UseStartup<Startup>();
                 });
     }

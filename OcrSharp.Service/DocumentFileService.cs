@@ -30,11 +30,11 @@ namespace OcrSharp.Service
     {
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IOcrFileService _ocrFileService;
-        private readonly IHubContext<ImagesMessageHub, IStreaming> _hubContext;
+        private readonly IHubContext<ImagesMessageHub, IImagesMessageHub> _hubContext;
         private readonly ILogger _logger;
 
         public DocumentFileService(IFileUtilityService fileUtilityService, IOcrFileService ocrFileService,
-            ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IStreaming> hubContext)
+            ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IImagesMessageHub> hubContext)
         {
             _fileUtilityService = fileUtilityService;
             _ocrFileService = ocrFileService;

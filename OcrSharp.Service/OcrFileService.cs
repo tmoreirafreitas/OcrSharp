@@ -27,7 +27,7 @@ namespace OcrSharp.Service
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger _logger;
-        private readonly IHubContext<ImagesMessageHub, IStreaming> _hubContext;
+        private readonly IHubContext<ImagesMessageHub, IImagesMessageHub> _hubContext;
         private readonly int maxthreads = Convert.ToInt32(Math.Ceiling((Environment.ProcessorCount * 0.75) * 7.0));
 
         private class ThreadState
@@ -36,7 +36,7 @@ namespace OcrSharp.Service
             public TesseractEngine Engine { get; set; }
         }
 
-        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IStreaming> hubContext)
+        public OcrFileService(IConfiguration configuration, ILoggerFactory loggerFactory, IHubContext<ImagesMessageHub, IImagesMessageHub> hubContext)
         {
             _configuration = configuration;
             _logger = loggerFactory.CreateLogger<OcrFileService>();
