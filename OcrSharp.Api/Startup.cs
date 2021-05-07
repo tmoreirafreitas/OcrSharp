@@ -11,6 +11,8 @@ using OcrSharp.Infra.CrossCutting.IoC.Extensions;
 using OcrSharp.Service.Hubs;
 using Swashbuckle.AspNetCore.SwaggerUI;
 using System;
+using System.IO;
+using System.Runtime.InteropServices;
 
 namespace OcrSharp.Api
 {
@@ -56,7 +58,7 @@ namespace OcrSharp.Api
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
-            }     
+            }
             else
             {
                 app.UseStatusCodePages();
@@ -74,8 +76,8 @@ namespace OcrSharp.Api
                 c.DocumentTitle = "OCR SHARP API Documentation";
                 c.DocExpansion(DocExpansion.None);
             });
-            
-            app.UseMiddleware(typeof(RequestMiddliware));            
+
+            app.UseMiddleware(typeof(RequestMiddliware));
             app.UseRouting();
             app.UseAuthorization();
             app.UseEndpoints(endpoints =>
@@ -83,6 +85,21 @@ namespace OcrSharp.Api
                 endpoints.MapControllers();
                 endpoints.MapHub<ImagesMessageHub>("/ImagesMessageHub");
             });
+
+            //CopyRequiredFileToCurrentDirectoryApp();
         }
+
+        //private void CopyRequiredFileToCurrentDirectoryApp()
+        //{
+        //    var isLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+        //    if (isLinux)
+        //    {
+        //        string sourceFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"liblinux/libcvextern.so");
+        //        string destFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"runtimes/linux/native/libcvextern.so");
+        //        //string destFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"runtimes/ubuntu.20.04-x64/native/libcvextern.so");
+        //        if (!File.Exists(destFile))
+        //            File.Copy(sourceFile, destFile, true);
+        //    }
+        //}
     }
 }
