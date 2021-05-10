@@ -251,7 +251,7 @@ namespace OcrSharp.Service
             Bitmap rotatedImage = rotationFilter.Apply(image);
 
             var ms = new MemoryStream();
-            rotatedImage.Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            rotatedImage.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
             ms.Position = 0;
 
             image.Dispose();
@@ -278,7 +278,7 @@ namespace OcrSharp.Service
             var imageSmoothening = ImageSmoothening(image);
 
             var ms = new MemoryStream();
-            imageSmoothening.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Tiff);
+            imageSmoothening.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Png);
             ms.Position = 0;
             return ms;
         }
