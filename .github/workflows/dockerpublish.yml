@@ -56,13 +56,8 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v2     
-      
-      - name: Build the Docker image
-        run: docker build . --file Dockerfile --tag $IMAGE_NAME
-
-      - name: Publish the Docker image      
-      
+      - name: Publish to Docker Hub
+      - uses: actions/checkout@v2           
       - uses: docker/build-push-action@v1
         env:
           DOCKER_BUILDKIT: "V1"
@@ -75,5 +70,6 @@ jobs:
           add_git_labels: true
           always_pull: true
           labels: label_name_1=label_value_1
-          tags: latest       
+          tags: latest, $(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          build_args: $IMAGE_ID
           
