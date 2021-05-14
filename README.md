@@ -1,4 +1,5 @@
-# OcrSharp (Tesseract + EmguCV + .NET5)
+# OcrSharp (Tesseract + EmguCV + .NET5) [![.github/workflows/dockerpublish.yml](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/dockerpublish.yml/badge.svg)](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/dockerpublish.yml)
+
 É uma aplicação Web API que é útil para ser reaproveitada em outros contextos. Forma de utilização facilitada, vem com swagger para facilitar o entendimento das chamadas das funcionalidades desejadas.
 
 As funcionalidades são:
