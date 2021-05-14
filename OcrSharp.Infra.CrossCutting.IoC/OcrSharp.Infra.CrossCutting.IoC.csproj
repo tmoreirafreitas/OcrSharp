@@ -4,6 +4,10 @@
     <TargetFramework>net5.0</TargetFramework>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\OcrSharp.Service\OcrSharp.Service.csproj" />
   </ItemGroup>

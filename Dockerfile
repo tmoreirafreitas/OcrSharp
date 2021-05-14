@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/aspnet:5.0-focal AS base
-LABEL version="1.0"
+LABEL version="1.0.0"
 LABEL author="Thiago Gabriel Moreira Freitas"
-LABEL description="Ubuntu-Focal with Emgucv and dotnet-5.0"
+LABEL description="Ubuntu-Focal with Emgucv, OCR Tesseract engine, libvips and dotnet-5.0"
 WORKDIR /app
 WORKDIR /
 
@@ -10,6 +10,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     build-essential \
     apt-transport-https \
     software-properties-common \
+    ghostscript \
     wget \
     unzip \
     ca-certificates \
@@ -21,15 +22,18 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     libavformat-dev \
     libdc1394-22-dev \
     libv4l-dev \
+    libvips \
     cmake-curses-gui \
     ocl-icd-dev \
     freeglut3-dev \
     libgeotiff-dev \
+    libtiff-dev \
     libusb-1.0-0-dev \
     cmake \
     git \
     gfortran \
     nano \
+    vim \
     automake \
     libtool \
     libc6-dev \
@@ -69,6 +73,6 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-RUN cp /app/liblinuxemgucv/libcvextern.so /usr/lib
+RUN cp /app/runtimes/ubuntu.20.04-x64/native/libcvextern.so /usr/lib
 
 ENTRYPOINT ["dotnet", "OcrSharp.Api.dll"]

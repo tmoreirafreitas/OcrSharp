@@ -29,6 +29,12 @@ namespace OcrSharp.Api.Setup
             {
                 await HandleExceptionAsync(context, ex);
             }
+            finally
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
         }
 
         private Task HandleExceptionAsync(HttpContext context, Exception exception)

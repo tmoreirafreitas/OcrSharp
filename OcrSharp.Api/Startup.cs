@@ -7,12 +7,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using OcrSharp.Api.Setup;
+using OcrSharp.Domain.Options;
 using OcrSharp.Infra.CrossCutting.IoC.Extensions;
 using OcrSharp.Service.Hubs;
 using Swashbuckle.AspNetCore.SwaggerUI;
 using System;
-using System.IO;
-using System.Runtime.InteropServices;
 
 namespace OcrSharp.Api
 {
@@ -33,6 +32,9 @@ namespace OcrSharp.Api
                 options.Providers.Add<GzipCompressionProvider>();
             });
 
+            // Use the Options Module:
+            services.AddOptions();
+
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {
@@ -48,6 +50,8 @@ namespace OcrSharp.Api
             })
             .AddJsonProtocol()
             .AddMessagePackProtocol();
+
+            ConfigureOptions(services);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -65,8 +69,8 @@ namespace OcrSharp.Api
                 app.UseHsts();
             }
 
-            app.UseStaticFiles();
             app.UseResponseCompression();
+            app.UseStaticFiles();            
 
             app.UseSwagger();
             app.UseSwaggerUI(c =>
@@ -78,6 +82,7 @@ namespace OcrSharp.Api
             });
 
             app.UseMiddleware(typeof(RequestMiddliware));
+            app.UseMiddleware(typeof(GcMiddleware));
             app.UseRouting();
             app.UseAuthorization();
             app.UseEndpoints(endpoints =>
@@ -85,21 +90,11 @@ namespace OcrSharp.Api
                 endpoints.MapControllers();
                 endpoints.MapHub<ImagesMessageHub>("/ImagesMessageHub");
             });
-
-            //CopyRequiredFileToCurrentDirectoryApp();
         }
 
-        //private void CopyRequiredFileToCurrentDirectoryApp()
-        //{
-        //    var isLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
-        //    if (isLinux)
-        //    {
-        //        string sourceFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"liblinux/libcvextern.so");
-        //        string destFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"runtimes/linux/native/libcvextern.so");
-        //        //string destFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"runtimes/ubuntu.20.04-x64/native/libcvextern.so");
-        //        if (!File.Exists(destFile))
-        //            File.Copy(sourceFile, destFile, true);
-        //    }
-        //}
+        private void ConfigureOptions(IServiceCollection services)
+        {
+            services.Configure<TesseractOptions>(Configuration.GetSection("Application:Tesseract"));
+        }
     }
 }
