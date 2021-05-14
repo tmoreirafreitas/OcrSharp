@@ -67,5 +67,5 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Publish the Docker Image
         run: |
-          docker tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER
+          docker tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME
+          docker push ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME
