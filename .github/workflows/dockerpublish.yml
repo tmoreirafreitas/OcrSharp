@@ -71,5 +71,4 @@ jobs:
           always_pull: true
           labels: label_name_1=label_value_1
           tags: latest, $(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
-          build_args: $IMAGE_ID
           
