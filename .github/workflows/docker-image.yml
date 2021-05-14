@@ -31,4 +31,5 @@ jobs:
       run: |
         docker build . --file Dockerfile --tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER
         docker tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
+        docker login docker.io
         docker push ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME
