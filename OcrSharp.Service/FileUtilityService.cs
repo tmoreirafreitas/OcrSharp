@@ -2,10 +2,10 @@
 using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -116,26 +116,73 @@ namespace OcrSharp.Service
             return files;
         }
 
-        public async Task<Stream> GetZipArchive(IEnumerable<InMemoryFile> files, CancellationToken cancellationToken = default)
+        //public async Task<Stream> GetZipArchive(IEnumerable<InMemoryFile> files, CancellationToken cancellationToken = default)
+        //{
+        //    return await Task.Run(() =>
+        //    {
+        //        var archiveStream = new MemoryStream();
+        //        using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, true))
+        //        {
+        //            foreach (var file in files)
+        //            {
+        //                if (cancellationToken.IsCancellationRequested)
+        //                    cancellationToken.ThrowIfCancellationRequested();
+
+        //                var zipArchiveEntry = archive.CreateEntry(Path.GetFileName(file.FileName), CompressionLevel.Fastest);
+        //                using (var zipStream = zipArchiveEntry.Open())
+        //                    zipStream.Write(file.Content, 0, file.Content.Length);
+        //            }
+        //        }
+        //        archiveStream.Position = 0;
+        //        return archiveStream;
+        //    }, cancellationToken);
+        //}
+
+        public Task<Stream> GetZipArchive(IEnumerable<Stream> files, string extension, CancellationToken cancellationToken = default)
         {
-            return await Task.Run(() =>
+            if(files != null && files.Any())
             {
-                var archiveStream = new MemoryStream();
-                using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, true))
+                var filenameWithoutExtensionAndPage = Guid.NewGuid().ToString("N").ToUpper();
+                var count = files.Count();
+                var digits = count.ToString().Length;
+                var arrayFiles = files.ToArray();
+                Stream archiveStream = new MemoryStream();
+
+                try
                 {
-                    foreach (var file in files)
+                    using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, true))
                     {
-                        if (cancellationToken.IsCancellationRequested)
+                        for (var i = 0; i < count; i++)
+                        {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                        var zipArchiveEntry = archive.CreateEntry(Path.GetFileName(file.FileName), CompressionLevel.Fastest);
-                        using (var zipStream = zipArchiveEntry.Open())
-                            zipStream.Write(file.Content, 0, file.Content.Length);
+                            var filename = $"{filenameWithoutExtensionAndPage}-{i.ToString($"D{digits}")}{extension}";
+                            var zipArchiveEntry = archive.CreateEntry(filename, CompressionLevel.Fastest);
+
+                            using var ms = new MemoryStream();
+                            arrayFiles[i].CopyTo(ms);
+                            var data = ms.ToArray();
+
+                            using var zipStream = zipArchiveEntry.Open();
+                            zipStream.Write(data, 0, data.Length);
+                        }
+
+                        arrayFiles = null;
                     }
+                    archiveStream.Position = 0;
+                    return Task.FromResult(archiveStream);
                 }
-                archiveStream.Position = 0;
-                return archiveStream;
-            }, cancellationToken);
+                catch (Exception)
+                {
+                    throw;
+                }
+            }
+            return null;
+        }
+
+        public Task<string> NewTempFileName(string tempPath)
+        {
+            return Task.FromResult(Path.Combine(tempPath, Guid.NewGuid().ToString("N").ToUpper()));
         }
     }
 }

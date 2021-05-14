@@ -3,15 +3,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using OcrSharp.Api.ViewModel;
 using OcrSharp.Domain;
-using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Services;
 using OcrSharp.Service.Extensions;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Mime;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace OcrSharp.Api.Controllers
@@ -21,14 +18,20 @@ namespace OcrSharp.Api.Controllers
     [ApiController]
     public class FileController : ControllerBase
     {
-        private readonly IOcrFileService _ocrService;
-        private readonly IDocumentFileService _documentService;
+        private readonly ITesseractService _tesseractService;
+        private readonly IPdfToImageConverter _pdfToImageConverter;
+        private readonly IOpenCvService _openCvService;
+        private readonly IFileUtilityService _fileUtilityService;
         private readonly ILogger _logger;
 
-        public FileController(IOcrFileService ocrFileService, IDocumentFileService documentService, ILoggerFactory loggerFactory)
+        public FileController(ILoggerFactory loggerFactory, IOpenCvService openCvService,
+            IFileUtilityService fileUtilityService, ITesseractService tesseractService,
+            IPdfToImageConverter pdfToImageConverter)
         {
-            _ocrService = ocrFileService;
-            _documentService = documentService;
+            _openCvService = openCvService;
+            _tesseractService = tesseractService;
+            _fileUtilityService = fileUtilityService;
+            _pdfToImageConverter = pdfToImageConverter;
             _logger = loggerFactory.CreateLogger<FileController>();
         }
 
@@ -37,28 +40,40 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ImageForOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> ImageForOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low)
         {
-            _logger.LogInformation("Validando extenção arquivo");
-            if (!Path.GetExtension(inputFile.FileName).ToLower().Equals(".bmp")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".tif")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".tiff")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpeg")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpg")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpe")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jfif")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".png"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
-
-            var inMemory = new InMemoryFile()
+            var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
+            try
             {
-                FileName = inputFile.FileName,
-                Content = inputFile.OpenReadStream().ConvertToArray(cancellationToken)
-            };
+                _logger.LogInformation("Validando extenção arquivo");
+                var extension = Path.GetExtension(inputFile.FileName).ToLower();
+                if (!extension.Equals(".bmp")
+                 && !extension.Equals(".tif")
+                 && !extension.Equals(".tiff")
+                 && !extension.Equals(".jpeg")
+                 && !extension.Equals(".jpg")
+                 && !extension.Equals(".jpe")
+                 && !extension.Equals(".jfif")
+                 && !extension.Equals(".png"))
+                    return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            var result = await _ocrService.ApplyOcrAsync(inMemory, accuracy);
+                await _fileUtilityService.CreateFolder(tempPath);
 
-            return Ok(Encoding.UTF8.GetString(result.Content));
+                var tempInputFile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
+                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(inputFile.OpenReadStream()));
+                image.Save(tempInputFile);
+
+                var result = await _tesseractService.GetText(tempInputFile, extension, accuracy);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+            finally
+            {
+                await _fileUtilityService.DeleteAllAsync(tempPath, true);
+            }
         }
 
         [Consumes("multipart/form-data")]
@@ -66,35 +81,57 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ImageForDataOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> ImageForDataOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low)
         {
-            _logger.LogInformation("Validando extenção arquivo");
-            if (!Path.GetExtension(inputFile.FileName).ToLower().Equals(".bmp")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".tif")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".tiff")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpeg")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpg")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jpe")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".jfif")
-             && !Path.GetExtension(inputFile.FileName.ToLower()).Equals(".png"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+            Stopwatch stopWatch = new Stopwatch();
+            stopWatch.Start();
 
-            var inMemory = new InMemoryFile()
+            var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
+
+            try
             {
-                FileName = inputFile.FileName,
-                Content = inputFile.OpenReadStream().ConvertToArray(cancellationToken)
-            };
+                _logger.LogInformation("Validando extenção arquivo");
+                var extension = Path.GetExtension(inputFile.FileName).ToLower();
+                if (!extension.Equals(".bmp")
+                 && !extension.Equals(".tif")
+                 && !extension.Equals(".tiff")
+                 && !extension.Equals(".jpeg")
+                 && !extension.Equals(".jpg")
+                 && !extension.Equals(".jpe")
+                 && !extension.Equals(".jfif")
+                 && !extension.Equals(".png"))
+                    return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            var result = await _ocrService.ApplyOcrAsync(inMemory, accuracy);
-            var ocr = new OcrResultViewModel
+                await _fileUtilityService.CreateFolder(tempPath);
+
+                var tempInputFile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
+                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(inputFile.OpenReadStream()));
+                image.Save(tempInputFile);
+
+                var result = await _tesseractService.GetText(tempInputFile, extension, accuracy);
+
+                TimeSpan el = stopWatch.Elapsed;
+                string strElapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                el.Hours, el.Minutes, el.Seconds,
+                el.Milliseconds / 10);
+
+                var ocr = new OcrResultViewModel
+                {
+                    FileName = Path.GetFileName(tempInputFile),
+                    Content = result,
+                    RunTime = strElapsedTime,
+                };
+
+                return Ok(ocr);
+            }
+            catch (Exception)
             {
-                FileName = inputFile.FileName,
-                Accuracy = result.Accuracy,
-                Content = Encoding.UTF8.GetString(result.Content),
-                RunTime = result.RunTime,
-            };
-
-            return Ok(ocr);
+                throw;
+            }
+            finally
+            {
+                await _fileUtilityService.DeleteAllAsync(tempPath, true);
+            }
         }
 
         [Consumes("multipart/form-data")]
@@ -102,19 +139,20 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile, CancellationToken cancellationToken)
+        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile)
         {
             _logger.LogInformation("Validando extenção arquivo");
-            if (!Path.GetExtension(inputFile.FileName).ToLower().Equals(".pdf"))
+            var extension = Path.GetExtension(inputFile.FileName).ToLower();
+            if (!extension.Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var archive = await _documentService.ConvertPdfFileToImagesZippedAsync(new InMemoryFile
-            {
-                FileName = inputFile.FileName,
-                Content = st.ConvertToArray(cancellationToken)
-            });
+            const string extensionImage = ".tif";
+            var listBuffres = await _pdfToImageConverter.ConvertToStreams(inputFile.OpenReadStream().ConvertToArray(), extensionImage);
+
+            _logger.LogInformation("Zipping files ...");
+            var archive = await _fileUtilityService.GetZipArchive(listBuffres, extensionImage);
             var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
+            _logger.LogInformation("Files zipped ...");
             return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
         }
 
@@ -123,21 +161,15 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult GetNumberOfPages(IFormFile inputFile)
+        public async Task<IActionResult> GetNumberOfPages(IFormFile inputFile)
         {
             _logger.LogInformation("Validando extenção arquivo");
-            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+            var extension = Path.GetExtension(inputFile.FileName).ToLower();
+            if (!extension.Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
             _logger.LogInformation("Obtendo o número de páginas");
-            using var st = inputFile.OpenReadStream();
-            var file = new InMemoryFile()
-            {
-                FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
-                Content = st.ConvertToArray()
-            };
-
-            return Ok(_documentService.GetNumberOfPages(file));
+            return Ok(await _pdfToImageConverter.GetNumberOfPageAsync(inputFile.OpenReadStream().ConvertToArray()));
         }
 
         [Consumes("multipart/form-data")]
@@ -145,23 +177,21 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile inputFile, int page, CancellationToken cancellationToken)
+        public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile inputFile, int pageNumber)
         {
             _logger.LogInformation("Validando extenção arquivo");
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
+            _logger.LogInformation($"Convertendo página {pageNumber} do arquivo {inputFile.FileName} em imagem");
+            using (var inputStream = inputFile.OpenReadStream())
             {
-                FileName = Regex.Replace(Regex.Replace(inputFile.FileName.Trim(), @"[-]+", string.Empty, RegexOptions.None), @"[,()\s]+", "_", RegexOptions.CultureInvariant),
-                Content = st.ConvertToArray(cancellationToken)
-            };
+                var image = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif");
+                    _logger.LogInformation($"Conversão finalizada. File Length = {image.Length}");
 
-            _logger.LogInformation($"Convertendo página {page} do arquivo {inMemory.FileName} em imagem");
-            var fileImage = _documentService.ConvertPdfPageToImageAsync(inMemory, page);
-            _logger.LogInformation($"Conversão finalizada");
-            return await Task.FromResult(ConfigurationFileStreamToDownload(fileImage.Content.ToStream(), fileImage.FileName, "image/tiff"));
+                var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
+                return await Task.FromResult(ConfigurationFileStreamToDownload(image, tempInputFile, "image/tiff"));
+            }
         }
 
         [Consumes("multipart/form-data")]
@@ -169,23 +199,30 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, Accuracy accuracy = Accuracy.Low, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, Accuracy accuracy = Accuracy.Low)
         {
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
                 return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            using var st = inputFile.OpenReadStream();
-            var inMemory = new InMemoryFile()
-            {
-                FileName = inputFile.FileName,
-                Content = st.ConvertToArray(cancellationToken)
-            };
+            _logger.LogInformation("Validando extenção arquivo");
+            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
 
-            _logger.LogInformation($"Extraindo texto da página {pageNumber} do documento {inMemory.FileName}");
-            var page = await _documentService.ExtracTextFromPdfPageAsync(inMemory, pageNumber, accuracy, cancellationToken);
-            _logger.LogInformation($"Extração do texto finalizada.");
-            var textResult = Regex.Replace(page.Content, @"^\s+$[\r\n]*", string.Empty, RegexOptions.Multiline);
-            return Ok(textResult);
+            _logger.LogInformation($"Convertendo página {pageNumber} do arquivo {inputFile.FileName} em imagem");
+            using (var inputStream = inputFile.OpenReadStream())
+            {
+                using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif"))
+                {
+                    _logger.LogInformation($"Conversão finalizada");
+                    var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
+                    using (var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(imageStream)))
+                    {
+                        image.Save(tempInputFile);
+                        var result = await _tesseractService.GetText(tempInputFile, ".tif", accuracy);
+                        return Ok(result);
+                    }
+                }
+            }
         }
 
         private FileStreamResult ConfigurationFileStreamToDownload(Stream file, string fileName, string contentType)

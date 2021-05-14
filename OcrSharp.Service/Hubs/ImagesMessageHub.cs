@@ -7,56 +7,72 @@ using OcrSharp.Domain.Interfaces.Hubs;
 using OcrSharp.Domain.Interfaces.Services;
 using System;
 using System.Diagnostics;
-using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace OcrSharp.Service.Hubs
 {
-    public class ImagesMessageHub : Hub<IStreaming>
+    public class ImagesMessageHub : Hub<IImagesMessageHub>
     {
-        private readonly IDocumentFileService _documentService;
+        private readonly IFileUtilityService _fileUtilityService;
+        private readonly IPdfToImageConverter _pdfToImageConverter;
+        private readonly ITesseractService _tesseractService;
         private readonly ILogger _logger;
 
-        public ImagesMessageHub(IDocumentFileService documentService, ILoggerFactory loggerFactory)
+        public ImagesMessageHub(IFileUtilityService fileUtilityService, ITesseractService tesseractService,
+                                IPdfToImageConverter pdfToImageConverter, ILoggerFactory loggerFactory)
         {
-            _documentService = documentService;
+            _pdfToImageConverter = pdfToImageConverter;
+            _fileUtilityService = fileUtilityService;
+            _tesseractService = tesseractService;
             _logger = loggerFactory.CreateLogger<ImagesMessageHub>();
         }
 
-        public async Task ExtractTextFromPdf(PdfData file, Accuracy accuracy, string user)
+        public async Task ExtractTextFromPdf(PdfData pdf, Accuracy accuracy, string user)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
-
             string mensagem;
-            if (!Path.GetExtension(file.FileName).Equals(".pdf"))
+
+            var tempPath = string.Empty;
+            try
             {
-                mensagem = $@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)";
+                var pageCount = await _pdfToImageConverter.GetNumberOfPageAsync(pdf.Binary);
+                tempPath = await _pdfToImageConverter.ConvertToFilesPreProcessed(pdf.Binary, ".tif");
+
+                var docPages = await _tesseractService.GetDocumentPages(tempPath, "*.tif", accuracy);
+                var outputFilename = $"{await _fileUtilityService.NewTempFileName(tempPath)}.txt";
+                var docFile = new DocumentFile(pageCount, outputFilename);
+                docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
+
+                _logger.LogInformation($"Enviando arquivo processado: {outputFilename} para o client: {user}");
+                string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(docFile));
+                await Clients.Client(user).ImageMessage(jsonData, StatusMensagem.TEXTO_EXTRAIDO);
+
+                stopWatch.Stop();
+                TimeSpan ts = stopWatch.Elapsed;
+                string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                ts.Hours, ts.Minutes, ts.Seconds,
+                ts.Milliseconds / 10);
+
+                mensagem = $"Tempo total de processamento: {elapsedTime}";
                 _logger.LogInformation($"Enviando mensagem: {mensagem}");
-                await Clients.Client(user).ImageMessage(mensagem, StatusMensagem.FALHA);
+                await Clients.Client(user).ImageMessage(mensagem, StatusMensagem.FINALIZADO);
+
+                docPages.Clear();
+                docPages = null;
+                docFile.Dispose();
+                docFile = null;
+                jsonData = null;
+                mensagem = null;
+                outputFilename = null;
+                user = null;
             }
-
-            var fileMemory = new InMemoryFile()
+            finally
             {
-                FileName = file.FileName,
-                Content = file.Binary,
-            };
-
-            var resultDocument = await _documentService.ExtractTextFromPdf(user, fileMemory, accuracy);
-
-            _logger.LogInformation($"Enviando arquivo processado: {fileMemory.FileName} para o client: {user}");
-            string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(resultDocument));
-            await Clients.Client(user).ImageMessage(jsonData, StatusMensagem.TEXTO_EXTRAIDO);
-
-            stopWatch.Stop();
-            TimeSpan ts = stopWatch.Elapsed;
-            string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
-            ts.Hours, ts.Minutes, ts.Seconds,
-            ts.Milliseconds / 10);
-
-            mensagem = $"Tempo total de processamento: {elapsedTime}";
-            _logger.LogInformation($"Enviando mensagem: {mensagem}");
-            await Clients.Client(user).ImageMessage(mensagem, StatusMensagem.FINALIZADO);
+                await _fileUtilityService.DeleteAllAsync(tempPath, true);
+                tempPath = null;
+            }
         }
     }
 }

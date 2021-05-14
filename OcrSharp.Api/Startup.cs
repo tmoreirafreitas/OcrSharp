@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using OcrSharp.Api.Setup;
+using OcrSharp.Domain.Options;
 using OcrSharp.Infra.CrossCutting.IoC.Extensions;
 using OcrSharp.Service.Hubs;
 using Swashbuckle.AspNetCore.SwaggerUI;
@@ -31,6 +32,9 @@ namespace OcrSharp.Api
                 options.Providers.Add<GzipCompressionProvider>();
             });
 
+            // Use the Options Module:
+            services.AddOptions();
+
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {
@@ -46,6 +50,8 @@ namespace OcrSharp.Api
             })
             .AddJsonProtocol()
             .AddMessagePackProtocol();
+
+            ConfigureOptions(services);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -56,15 +62,15 @@ namespace OcrSharp.Api
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
-            }     
+            }
             else
             {
                 app.UseStatusCodePages();
                 app.UseHsts();
             }
 
-            app.UseStaticFiles();
             app.UseResponseCompression();
+            app.UseStaticFiles();            
 
             app.UseSwagger();
             app.UseSwaggerUI(c =>
@@ -74,8 +80,9 @@ namespace OcrSharp.Api
                 c.DocumentTitle = "OCR SHARP API Documentation";
                 c.DocExpansion(DocExpansion.None);
             });
-            
-            app.UseMiddleware(typeof(RequestMiddliware));            
+
+            app.UseMiddleware(typeof(RequestMiddliware));
+            app.UseMiddleware(typeof(GcMiddleware));
             app.UseRouting();
             app.UseAuthorization();
             app.UseEndpoints(endpoints =>
@@ -83,6 +90,11 @@ namespace OcrSharp.Api
                 endpoints.MapControllers();
                 endpoints.MapHub<ImagesMessageHub>("/ImagesMessageHub");
             });
+        }
+
+        private void ConfigureOptions(IServiceCollection services)
+        {
+            services.Configure<TesseractOptions>(Configuration.GetSection("Application:Tesseract"));
         }
     }
 }
