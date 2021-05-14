@@ -12,6 +12,13 @@ on:
 
   # Run tests for any PRs.
   pull_request:
+    # Publish `main` as Docker `latest` image.
+    branches:
+      - main
+
+    # Publish `v1.2.3` tags as releases.
+    tags:
+      - v*
 
 env:
   # TODO: Change variable to your image's name.
@@ -49,32 +56,24 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Build image
+      - uses: actions/checkout@v2     
+      
+      - name: Build the Docker image
         run: docker build . --file Dockerfile --tag $IMAGE_NAME
 
-      - name: Log into registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
-
-      - name: Push image
-        run: |
-          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME
-
-          # Change all uppercase to lowercase
-          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
-
-          # Strip git ref prefix from version
-          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
-
-          # Strip "v" prefix from tag name
-          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
-
-          # Use Docker `latest` tag convention
-          [ "$VERSION" == "main" ] && VERSION=latest
-
-          echo IMAGE_ID=$IMAGE_ID
-          echo VERSION=$VERSION
-
-          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
-          docker push $IMAGE_ID:$VERSION
+      - name: Publish the Docker image      
+      
+      - uses: docker/build-push-action@v1
+        env:
+          DOCKER_BUILDKIT: "V1"
+        with:
+          username: "{{ secrets.DOCKER_USERNAME }}"
+          password: "{{ secrets.DOCKER_PASSWORD }}"
+          repository: tmoreirafreitas/tesseract-ocrapi
+          tag_with_ref: true
+          tag_with_sha: true
+          add_git_labels: true
+          always_pull: true
+          labels: label_name_1=label_value_1
+          tags: latest       
+          
