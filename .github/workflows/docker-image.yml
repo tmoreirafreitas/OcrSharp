@@ -7,21 +7,21 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
+    
 jobs:
-  push_to_registry:
-    name: Build And Push
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Build the Docker image
-      run: | 
-        docker build . --file Dockerfile --tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER
-        docker tag ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
-    - name: Push to Docker Hub
-      uses: docker/build-push-action@v1
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-        repository: ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
-        tag_with_ref: true
+ main:
+   runs-on: ubuntu-latest
+   steps:
+     -
+       name: Login to DockerHub
+       uses: docker/login-action@v1
+       with:
+         username: ${{ secrets.DOCKER_USERNAME }}
+         password: ${{ secrets.DOCKER_PASSWORD }}
+     -
+       name: Build and push
+       id: docker_build
+       uses: docker/build-push-action@v2
+       with:
+         push: true
+         tags: ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:$GITHUB_RUN_NUMBER ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
