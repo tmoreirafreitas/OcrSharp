@@ -1,4 +1,4 @@
-name: Build And Publish Docker image
+name: Docker Image CI
 env:
   IMAGE_NAME: tesseract-ocrapi
   
@@ -10,7 +10,7 @@ on:
 
 jobs:
   push_to_registry:
-    name: Build And Push Docker image to Docker Hub
+    name: Build And Push
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -25,3 +25,4 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
         repository: ${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
         tag_with_ref: true
+        push: true
