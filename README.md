@@ -1,4 +1,4 @@
-[![Docker Image CI]<div align="center">(https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml/badge.svg)</div>](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml)
+[![Docker Image CI](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml/badge.svg)](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml)
 
 # OcrSharp (Tesseract + EmguCV + .NET5)
 
