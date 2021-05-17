@@ -1,4 +1,4 @@
-# OcrSharp (Tesseract + EmguCV + .NET5) | [![Docker Image CI](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml/badge.svg)](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml)
+# OcrSharp (Tesseract + EmguCV + .NET5) [![Docker Image CI](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml/badge.svg)](https://github.com/tmoreirafreitas/OcrSharp/actions/workflows/docker-image.yml)
 
 É uma aplicação Web API que é útil para ser reaproveitada em outros contextos. Forma de utilização facilitada, vem com swagger para facilitar o entendimento das chamadas das funcionalidades desejadas.
 
