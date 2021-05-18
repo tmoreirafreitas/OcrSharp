@@ -17,9 +17,9 @@ namespace OcrSharp.Infra.CrossCutting.IoC
             string tessDataBest = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata_best");
             string tessDataFast = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata_fast");
             string tessData = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata");
-            configuration["Application:Tesseract:tessDataBest"] = tessDataBest;
-            configuration["Application:Tesseract:tessDataFast"] = tessDataFast;
-            configuration["Application:Tesseract:tessData"] = tessData;
+            configuration["Tesseract:tessDataBest"] = tessDataBest;
+            configuration["Tesseract:tessDataFast"] = tessDataFast;
+            configuration["Tesseract:tessData"] = tessData;
         }
     }
 }

@@ -28,6 +28,18 @@ namespace OcrSharp.Service.Hubs
             _logger = loggerFactory.CreateLogger<ImagesMessageHub>();
         }
 
+        public async override Task OnConnectedAsync()
+        {
+            await base.OnConnectedAsync();
+            _logger.LogInformation($"A client connected to ImagesMessageHub: {Context.ConnectionId}");
+        }
+
+        public async override Task OnDisconnectedAsync(Exception exception)
+        {
+            await base.OnDisconnectedAsync(exception);
+            _logger.LogInformation($"A client disconnected from ImagesMessageHub: {Context.ConnectionId}");
+        }
+
         public async Task ExtractTextFromPdf(PdfData pdf, Accuracy accuracy, string user)
         {
             Stopwatch stopWatch = new Stopwatch();
@@ -45,7 +57,7 @@ namespace OcrSharp.Service.Hubs
                 var docFile = new DocumentFile(pageCount, outputFilename);
                 docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
 
-                _logger.LogInformation($"Enviando arquivo processado: {outputFilename} para o client: {user}");
+                _logger.LogInformation($"Sending processed file: {outputFilename} to the client: {user}");
                 string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(docFile));
                 await Clients.Client(user).ImageMessage(jsonData, StatusMensagem.TEXTO_EXTRAIDO);
 
@@ -55,8 +67,8 @@ namespace OcrSharp.Service.Hubs
                 ts.Hours, ts.Minutes, ts.Seconds,
                 ts.Milliseconds / 10);
 
-                mensagem = $"Tempo total de processamento: {elapsedTime}";
-                _logger.LogInformation($"Enviando mensagem: {mensagem}");
+                mensagem = $"Total processing time: {elapsedTime}";
+                _logger.LogInformation($"Sending message: {mensagem}");
                 await Clients.Client(user).ImageMessage(mensagem, StatusMensagem.FINALIZADO);
 
                 docPages.Clear();

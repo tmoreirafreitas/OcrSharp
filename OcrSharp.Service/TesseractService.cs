@@ -35,13 +35,11 @@ namespace OcrSharp.Service
         /// <summary>
         /// Initializes a new instance of the <see cref="TesseractService"/> class.
         /// </summary>
-        /// <param name="configuration">The configuration </param>
-        /// <param name="fileUtilityService"></param>
-        /// <param name="hubContext"></param>
-        /// <param name="logger"></param>
-        /// <param name="tesseractOptions">The language used to extract text from images (eng, por, etc)
-        /// The path for the Tesseract4 installation folder (C:\Program Files\Tesseract-OCR).
-        /// </param>
+        /// <param name="logger">Service used for logging.</param>
+        /// <param name="fileUtilityService">Service used for manipulating files and directories.</param>
+        /// <param name="hubContext">Context used to access SignalR hub methods.</param>
+        /// <param name="configuration">Service used to access information in the appsettings.json file.</param>
+        /// <param name="tesseractOptions">Option settings used by the OCR Tesseract engine to extract text from images (eng, por, etc)</param>
         public TesseractService(ILogger<TesseractService> logger,
             IFileUtilityService fileUtilityService,
             IHubContext<ImagesMessageHub, IImagesMessageHub> hubContext,
@@ -67,13 +65,13 @@ namespace OcrSharp.Service
                     switch (accuracy)
                     {
                         case Accuracy.Hight:
-                            tessDataPath = _configuration["Application:Tesseract:tessDataBest"];
+                            tessDataPath = _configuration["Tesseract:tessDataBest"];
                             break;
                         case Accuracy.Low:
-                            tessDataPath = _configuration["Application:Tesseract:tessDataFast"];
+                            tessDataPath = _configuration["Tesseract:tessDataFast"];
                             break;
                         case Accuracy.Medium:
-                            tessDataPath = _configuration["Application:Tesseract:tessData"];
+                            tessDataPath = _configuration["Tesseract:tessData"];
                             break;
                     }
                     Environment.SetEnvironmentVariable("TESSDATA_PREFIX", tessDataPath);
@@ -155,13 +153,13 @@ namespace OcrSharp.Service
             switch (accuracy)
             {
                 case Accuracy.Hight:
-                    tessDataPath = _configuration["Application:Tesseract:tessDataBest"];
+                    tessDataPath = _configuration["Tesseract:tessDataBest"];
                     break;
                 case Accuracy.Low:
-                    tessDataPath = _configuration["Application:Tesseract:tessDataFast"];
+                    tessDataPath = _configuration["Tesseract:tessDataFast"];
                     break;
                 case Accuracy.Medium:
-                    tessDataPath = _configuration["Application:Tesseract:tessData"];
+                    tessDataPath = _configuration["Tesseract:tessData"];
                     break;
             }
             Environment.SetEnvironmentVariable("TESSDATA_PREFIX", tessDataPath);
@@ -211,7 +209,7 @@ namespace OcrSharp.Service
                                     RunTime = strElapsedTime,
                                 });
 
-                                _logger.LogInformation($"Processado {docPages.Count} de {totalPages}");
+                                _logger.LogInformation($"Processed {docPages.Count} of {totalPages}");
                             }
 
                             tmpOutput = null;
@@ -239,6 +237,13 @@ namespace OcrSharp.Service
             }
         }
 
+        /// <summary>
+        /// Method used to return texts extracted from images.
+        /// </summary>
+        /// <param name="tempInputFile">The directory of the location of the image files for the OCR Tesseract</param>
+        /// <param name="extension">Extension of the files used for the CR Tesseract engine</param>
+        /// <param name="accuracy">Accuracy is used to define the training file by the CR Tesseract engine for extracting text from the image</param>
+        /// <returns>Returns the text extracted from the image</returns>
         public async Task<string> GetText(string tempInputFile, string extension, Accuracy accuracy)
         {
             Stopwatch stopWatch = new Stopwatch();
@@ -248,13 +253,13 @@ namespace OcrSharp.Service
             switch (accuracy)
             {
                 case Accuracy.Hight:
-                    tessDataPath = _configuration["Application:Tesseract:tessDataBest"];
+                    tessDataPath = _configuration["Tesseract:tessDataBest"];
                     break;
                 case Accuracy.Low:
-                    tessDataPath = _configuration["Application:Tesseract:tessDataFast"];
+                    tessDataPath = _configuration["Tesseract:tessDataFast"];
                     break;
                 case Accuracy.Medium:
-                    tessDataPath = _configuration["Application:Tesseract:tessData"];
+                    tessDataPath = _configuration["Tesseract:tessData"];
                     break;
             }
             Environment.SetEnvironmentVariable("TESSDATA_PREFIX", tessDataPath);

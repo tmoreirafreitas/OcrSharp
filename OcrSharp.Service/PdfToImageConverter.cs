@@ -23,12 +23,12 @@ namespace OcrSharp.Service
         private int _maxthreads = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.8 * 1));
 
         /// <summary>
-        /// 
+        /// Initializes a new instance of the <see cref="PdfToImageConverter"/> class.
         /// </summary>
-        /// <param name="configuration"></param>
-        /// <param name="loggerFactory"></param>
-        /// <param name="fileUtilityService"></param>
-        /// <param name="openCvService"></param>
+        /// <param name="configuration">Service used to access information in the appsettings.json file.</param>
+        /// <param name="loggerFactory">Service used for logging.</param>
+        /// <param name="fileUtilityService">Service used for manipulating files and directories.</param>
+        /// <param name="openCvService">Service used for image pre-processing.</param>
         public PdfToImageConverter(IConfiguration configuration, ILoggerFactory loggerFactory,
             IFileUtilityService fileUtilityService, IOpenCvService openCvService)
         {
@@ -48,11 +48,11 @@ namespace OcrSharp.Service
         }
 
         /// <summary>
-        /// 
+        /// Method used to convert all pages to a page enumerator in a stream format.
         /// </summary>
-        /// <param name="pdfDocument"></param>
-        /// <param name="extension"></param>
-        /// <returns></returns>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <param name="extension">Image file extension to which the page will be converted.</param>
+        /// <returns>Returns a streamed page enumerator</returns>
         public async Task<IEnumerable<Stream>> ConvertToStreams(byte[] pdfDocument, string extension)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
@@ -76,7 +76,7 @@ namespace OcrSharp.Service
                     await pages.ParallelForEachAsync(async page =>
                     {
                         using (var image = NetVips.Image.PdfloadBuffer(imageBytes, page: page, n: 1,
-                                dpi: Convert.ToInt32(_configuration["Application:Tesseract:Dpi"].Split(" ")[1])))
+                                dpi: Convert.ToInt32(_configuration["Tesseract:Dpi"].Split(" ")[1])))
                         {
                             var filename = Path.Combine(tempPath, $"{Path.GetFileNameWithoutExtension(tempInputFile)}-{page.ToString($"D{digits}")}{extension}");
                             _logger.LogInformation($"Rendering {filename} ...");
@@ -111,11 +111,11 @@ namespace OcrSharp.Service
         }
 
         /// <summary>
-        /// 
+        /// Method used to convert all pages into a page enumerator in buffer format.
         /// </summary>
-        /// <param name="pdfDocument"></param>
-        /// <param name="extension"></param>
-        /// <returns></returns>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <param name="extension">Image file extension to which the page will be converted.</param>
+        /// <returns>Returns a buffered page enumerator</returns>
         public async Task<IEnumerable<byte[]>> ConvertToBuffers(byte[] pdfDocument, string extension)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
@@ -137,7 +137,7 @@ namespace OcrSharp.Service
                     foreach (var page in pages)
                     {
                         using (var image = NetVips.Image.PdfloadBuffer(imageBytes, page: page, n: 1,
-                                dpi: Convert.ToInt32(_configuration["Application:Tesseract:Dpi"].Split(" ")[1])))
+                                dpi: Convert.ToInt32(_configuration["Tesseract:Dpi"].Split(" ")[1])))
                         {
                             var filename = Path.Combine(tempPath, $"{Path.GetFileNameWithoutExtension(tempInputFile)}-{page.ToString($"D{digits}")}.{extension}");
                             _logger.LogInformation($"Rendering {filename} ...");
@@ -170,12 +170,12 @@ namespace OcrSharp.Service
         }
 
         /// <summary>
-        /// 
+        /// Method used to convert a page of the PDF document to an image stream
         /// </summary>
-        /// <param name="pdfDocument"></param>
-        /// <param name="page"></param>
-        /// <param name="extension"></param>
-        /// <returns></returns>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <param name="page">Conversion page number</param>
+        /// <param name="extension">Image file extension to which the page will be converted</param>
+        /// <returns>Return the Image Stream stracted from page</returns>
         public async Task<Stream> ConvertPdfPageToImageStream(byte[] pdfDocument, int page, string extension)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
@@ -193,7 +193,7 @@ namespace OcrSharp.Service
                     var pageCount = (int)pdfImage.Get("n-pages");
                     var digits = pageCount.ToString().Length;
                     using (var image = NetVips.Image.PdfloadBuffer(imageBytes, page: page, n: 1,
-                                dpi: Convert.ToInt32(_configuration["Application:Tesseract:Dpi"].Split(" ")[1])))
+                                dpi: Convert.ToInt32(_configuration["Tesseract:Dpi"].Split(" ")[1])))
                     {
                         var filename = Path.Combine(tempPath, $"{Path.GetFileNameWithoutExtension(tempInputFile)}-{page.ToString($"D{digits}")}{extension}");
                         _logger.LogInformation($"Rendering {filename} ...");
@@ -222,11 +222,11 @@ namespace OcrSharp.Service
         }
 
         /// <summary>
-        /// 
+        /// Method used to convert all pages of the document to image files
         /// </summary>
-        /// <param name="pdfDocument"></param>
-        /// <param name="extension"></param>
-        /// <returns></returns>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <param name="extension">Image file extension to which the page will be converted</param>
+        /// <returns>Returns the location directory of the converted pages of the document</returns>
         public async Task<string> ConvertToFiles(byte[] pdfDocument, string extension)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
@@ -249,7 +249,7 @@ namespace OcrSharp.Service
                 await pages.ParallelForEachAsync(currentPage =>
                 {
                     using (var page = NetVips.Image.PdfloadBuffer(imageBytes, page: currentPage, n: 1,
-                        dpi: Convert.ToInt32(_configuration["Application:Tesseract:Dpi"].Split(" ")[1])))
+                        dpi: Convert.ToInt32(_configuration["Tesseract:Dpi"].Split(" ")[1])))
                     {
                         var filename = Path.Combine(tempPath, $"{Path.GetFileNameWithoutExtension(tempInputFile)}-{currentPage.ToString($"D{digits}")}{extension}");
                         _logger.LogInformation($"Rendering {filename} ...");
@@ -269,11 +269,11 @@ namespace OcrSharp.Service
         }
 
         /// <summary>
-        /// 
+        /// Method used to convert all pages of the document into pre-processed image files
         /// </summary>
-        /// <param name="pdfDocument"></param>
-        /// <param name="extension"></param>
-        /// <returns></returns>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <param name="extension">Image file extension to which the page will be converted</param>
+        /// <returns>Returns the location directory of the converted pages of the document</returns>
         public async Task<string> ConvertToFilesPreProcessed(byte[] pdfDocument, string extension)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
@@ -296,7 +296,7 @@ namespace OcrSharp.Service
                 await pages.ParallelForEachAsync(async currentPage =>
                 {
                     using (var page = NetVips.Image.PdfloadBuffer(imageBytes, page: currentPage, n: 1,
-                        dpi: Convert.ToInt32(_configuration["Application:Tesseract:Dpi"].Split(" ")[1])))
+                        dpi: Convert.ToInt32(_configuration["Tesseract:Dpi"].Split(" ")[1])))
                     {
                         var filename = Path.Combine(tempPath, $"{Path.GetFileNameWithoutExtension(tempInputFile)}-{currentPage.ToString($"D{digits}")}{extension}");
                         
@@ -323,6 +323,11 @@ namespace OcrSharp.Service
             return tempPath;
         }
 
+        /// <summary>
+        /// Method used to obtain the total number of pages in the document.
+        /// </summary>
+        /// <param name="pdfDocument">Document PDF in buffer format.</param>
+        /// <returns>Returns the total number of pages in the document.</returns>
         public async Task<int> GetNumberOfPageAsync(byte[] pdfDocument)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());

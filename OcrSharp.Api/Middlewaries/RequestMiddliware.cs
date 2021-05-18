@@ -6,7 +6,7 @@ using System.Net;
 using System.Threading.Tasks;
 
 
-namespace OcrSharp.Api.Setup
+namespace OcrSharp.Api.Middleware
 {
     public class RequestMiddliware
     {

@@ -45,7 +45,7 @@ namespace OcrSharp.Api.Controllers
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
             try
             {
-                _logger.LogInformation("Validando extenção arquivo");
+                _logger.LogInformation("Validating file extension.");
                 var extension = Path.GetExtension(inputFile.FileName).ToLower();
                 if (!extension.Equals(".bmp")
                  && !extension.Equals(".tif")
@@ -55,7 +55,7 @@ namespace OcrSharp.Api.Controllers
                  && !extension.Equals(".jpe")
                  && !extension.Equals(".jfif")
                  && !extension.Equals(".png"))
-                    return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                    return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
@@ -90,7 +90,7 @@ namespace OcrSharp.Api.Controllers
 
             try
             {
-                _logger.LogInformation("Validando extenção arquivo");
+                _logger.LogInformation("Validating file extension.");
                 var extension = Path.GetExtension(inputFile.FileName).ToLower();
                 if (!extension.Equals(".bmp")
                  && !extension.Equals(".tif")
@@ -100,7 +100,7 @@ namespace OcrSharp.Api.Controllers
                  && !extension.Equals(".jpe")
                  && !extension.Equals(".jfif")
                  && !extension.Equals(".png"))
-                    return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                    return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
@@ -141,17 +141,17 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile)
         {
-            _logger.LogInformation("Validando extenção arquivo");
+            _logger.LogInformation("Validating file extension.");
             var extension = Path.GetExtension(inputFile.FileName).ToLower();
             if (!extension.Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
             const string extensionImage = ".tif";
             var listBuffres = await _pdfToImageConverter.ConvertToStreams(inputFile.OpenReadStream().ConvertToArray(), extensionImage);
 
             _logger.LogInformation("Zipping files ...");
             var archive = await _fileUtilityService.GetZipArchive(listBuffres, extensionImage);
-            var filename = $"IMAGES_RESULTS_{DateTime.Now.GetDateNowEngFormat()}.zip";
+            var filename = $"{Guid.NewGuid().ToString("N").ToUpper()}.zip";
             _logger.LogInformation("Files zipped ...");
             return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
         }
@@ -163,12 +163,12 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetNumberOfPages(IFormFile inputFile)
         {
-            _logger.LogInformation("Validando extenção arquivo");
+            _logger.LogInformation("Validating file extension.");
             var extension = Path.GetExtension(inputFile.FileName).ToLower();
             if (!extension.Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation("Obtendo o número de páginas");
+            _logger.LogInformation("Getting the number of pages.");
             return Ok(await _pdfToImageConverter.GetNumberOfPageAsync(inputFile.OpenReadStream().ConvertToArray()));
         }
 
@@ -179,15 +179,15 @@ namespace OcrSharp.Api.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile inputFile, int pageNumber)
         {
-            _logger.LogInformation("Validando extenção arquivo");
+            _logger.LogInformation("Validating file extension.");
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation($"Convertendo página {pageNumber} do arquivo {inputFile.FileName} em imagem");
+            _logger.LogInformation($"Converting page {pageNumber} of the file {inputFile.FileName} in image");
             using (var inputStream = inputFile.OpenReadStream())
             {
                 var image = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif");
-                    _logger.LogInformation($"Conversão finalizada. File Length = {image.Length}");
+                    _logger.LogInformation($"Conversion finished.");
 
                 var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
                 return await Task.FromResult(ConfigurationFileStreamToDownload(image, tempInputFile, "image/tiff"));
@@ -202,18 +202,18 @@ namespace OcrSharp.Api.Controllers
         public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, Accuracy accuracy = Accuracy.Low)
         {
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation("Validando extenção arquivo");
+            _logger.LogInformation("Validating file extension.");
             if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
-                return BadRequest($@"Há extensão de arquivo não suportado, o tipo suportado é: Arquivos adobe PDF(*.pdf)");
+                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation($"Convertendo página {pageNumber} do arquivo {inputFile.FileName} em imagem");
+            _logger.LogInformation($"Converting page {pageNumber} of the file {inputFile.FileName} in image");
             using (var inputStream = inputFile.OpenReadStream())
             {
                 using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif"))
                 {
-                    _logger.LogInformation($"Conversão finalizada");
+                    _logger.LogInformation($"Conversion finished.");
                     var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
                     using (var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(imageStream)))
                     {

@@ -11,14 +11,28 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Service
 {
+    /// <summary>
+    /// Service used for manipulating files and directories.
+    /// </summary>
     public class FileUtilityService : IFileUtilityService
     {
         private readonly ILogger _logger;
+        /// <summary>
+        ///  Initializes a new instance of the <see cref="FileUtilityService"/> class.
+        /// </summary>
+        /// <param name="loggerFactory">Service used for logging.</param>
         public FileUtilityService(ILoggerFactory loggerFactory)
         {
             _logger = loggerFactory.CreateLogger<FileUtilityService>();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="fullFileName"></param>
+        /// <param name="stoppingToken"></param>
+        /// <returns></returns>
         public async Task CreateFileAsync(byte[] data, string fullFileName, CancellationToken stoppingToken = default)
         {
             if (data == null || data.Length == 0)
@@ -37,6 +51,13 @@ namespace OcrSharp.Service
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="fullFileName"></param>
+        /// <param name="stoppingToken"></param>
+        /// <returns></returns>
         public async Task CreateFileAsync(Stream data, string fullFileName, CancellationToken stoppingToken = default)
         {
             if (data == null)
@@ -55,6 +76,12 @@ namespace OcrSharp.Service
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="folderName"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         public async Task<string> CreateFolder(string folderName, CancellationToken cancellationToken = default)
         {
             return await Task.Run(() =>
@@ -71,6 +98,13 @@ namespace OcrSharp.Service
             }, cancellationToken);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="directory"></param>
+        /// <param name="recursive"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         public async Task DeleteAllAsync(string directory, bool recursive = false, CancellationToken cancellationToken = default)
         {
             await Task.Run(() =>
@@ -80,6 +114,12 @@ namespace OcrSharp.Service
             }, cancellationToken);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="fullFileName"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         public async Task DeleteFile(string fullFileName, CancellationToken cancellationToken = default)
         {
             await Task.Run(() =>
@@ -89,6 +129,13 @@ namespace OcrSharp.Service
             }, cancellationToken);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="folderPath"></param>
+        /// <param name="extension"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         public async Task<IEnumerable<InMemoryFile>> GetFiles(string folderPath, string extension = "*.txt", CancellationToken cancellationToken = default)
         {
             var files = new List<InMemoryFile>();
@@ -114,30 +161,15 @@ namespace OcrSharp.Service
 
             Directory.Delete(folderPath, true);
             return files;
-        }
+        }        
 
-        //public async Task<Stream> GetZipArchive(IEnumerable<InMemoryFile> files, CancellationToken cancellationToken = default)
-        //{
-        //    return await Task.Run(() =>
-        //    {
-        //        var archiveStream = new MemoryStream();
-        //        using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, true))
-        //        {
-        //            foreach (var file in files)
-        //            {
-        //                if (cancellationToken.IsCancellationRequested)
-        //                    cancellationToken.ThrowIfCancellationRequested();
-
-        //                var zipArchiveEntry = archive.CreateEntry(Path.GetFileName(file.FileName), CompressionLevel.Fastest);
-        //                using (var zipStream = zipArchiveEntry.Open())
-        //                    zipStream.Write(file.Content, 0, file.Content.Length);
-        //            }
-        //        }
-        //        archiveStream.Position = 0;
-        //        return archiveStream;
-        //    }, cancellationToken);
-        //}
-
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="files"></param>
+        /// <param name="extension"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         public Task<Stream> GetZipArchive(IEnumerable<Stream> files, string extension, CancellationToken cancellationToken = default)
         {
             if(files != null && files.Any())
@@ -180,6 +212,11 @@ namespace OcrSharp.Service
             return null;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="tempPath"></param>
+        /// <returns></returns>
         public Task<string> NewTempFileName(string tempPath)
         {
             return Task.FromResult(Path.Combine(tempPath, Guid.NewGuid().ToString("N").ToUpper()));

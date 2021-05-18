@@ -4,7 +4,7 @@ using System;
 using System.Runtime;
 using System.Threading.Tasks;
 
-namespace OcrSharp.Api.Setup
+namespace OcrSharp.Api.Middleware
 {
     public class GcMiddleware
     {

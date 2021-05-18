@@ -53,6 +53,12 @@ RUN cp /usr/lib/x86_64-linux-gnu/liblept.so.5 /app/x64/libleptonica-1.80.0.so
 RUN cp /usr/lib/x86_64-linux-gnu/libtesseract.so.4.0.1 /app/x64/libtesseract41.so
 
 WORKDIR /app
+ENV Oem="--oem 3"
+ENV Psm="--psm 6"
+ENV Dpi="--dpi 300"
+ENV Language="por"
+ENV TesseractExe="tesseract"
+ENV ThreadLimit="1"
 EXPOSE 80
 
 FROM mcr.microsoft.com/dotnet/sdk:5.0-focal AS build
