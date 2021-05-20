@@ -57,15 +57,16 @@ namespace OcrSharp.Service.Hubs
                 var docFile = new DocumentFile(pageCount, outputFilename);
                 docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
 
-                _logger.LogInformation($"Sending processed file: {outputFilename} to the client: {user}");
-                string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(docFile));
-                await Clients.Client(user).ImageMessage(jsonData, StatusMensagem.TEXTO_EXTRAIDO);
-
                 stopWatch.Stop();
                 TimeSpan ts = stopWatch.Elapsed;
                 string elapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
                 ts.Hours, ts.Minutes, ts.Seconds,
                 ts.Milliseconds / 10);
+
+                docFile.RunTime = ts;
+                _logger.LogInformation($"Sending processed file: {outputFilename} to the client: {user}");
+                string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(docFile));
+                await Clients.Client(user).ImageMessage(jsonData, StatusMensagem.TEXTO_EXTRAIDO);
 
                 mensagem = $"Total processing time: {elapsedTime}";
                 _logger.LogInformation($"Sending message: {mensagem}");

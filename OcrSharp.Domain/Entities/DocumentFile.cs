@@ -9,8 +9,8 @@ namespace OcrSharp.Domain.Entities
 
         public string FileName { get; private set; }
         public int PagesNumber { get; private set; }
-        public string RunTimeTotal { get; set; }
-        public List<DocumentPage> Pages { get; private set; }        
+        public TimeSpan RunTime { get; set; }
+        public List<DocumentPage> Pages { get; private set; }
 
         public DocumentFile(int pagesNumber, string fileName)
         {
@@ -45,13 +45,6 @@ namespace OcrSharp.Domain.Entities
                 disposedValue = true;
             }
         }
-
-        // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-        // ~DocumentFile()
-        // {
-        //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        //     Dispose(disposing: false);
-        // }
 
         public void Dispose()
         {
