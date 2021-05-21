@@ -7,6 +7,7 @@ using OcrSharp.Domain.Interfaces.Hubs;
 using OcrSharp.Domain.Interfaces.Services;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -54,7 +55,7 @@ namespace OcrSharp.Service.Hubs
 
                 var docPages = await _tesseractService.GetDocumentPages(tempPath, "*.tif", accuracy);
                 var outputFilename = $"{await _fileUtilityService.NewTempFileName(tempPath)}.txt";
-                var docFile = new DocumentFile(pageCount, outputFilename);
+                var docFile = new DocumentFile(pageCount, Path.GetFileName(outputFilename));
                 docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
 
                 stopWatch.Stop();
