@@ -13,10 +13,10 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Api.Controllers
 {
-    [Route("api/file")]
+    [Route("api/ocr")]
     [Produces(MediaTypeNames.Application.Json)]
     [ApiController]
-    public class FileController : ControllerBase
+    public class OcrController : ControllerBase
     {
         private readonly ITesseractService _tesseractService;
         private readonly IPdfToImageConverter _pdfToImageConverter;
@@ -24,7 +24,7 @@ namespace OcrSharp.Api.Controllers
         private readonly IFileUtilityService _fileUtilityService;
         private readonly ILogger _logger;
 
-        public FileController(ILoggerFactory loggerFactory, IOpenCvService openCvService,
+        public OcrController(ILoggerFactory loggerFactory, IOpenCvService openCvService,
             IFileUtilityService fileUtilityService, ITesseractService tesseractService,
             IPdfToImageConverter pdfToImageConverter)
         {
@@ -32,21 +32,21 @@ namespace OcrSharp.Api.Controllers
             _tesseractService = tesseractService;
             _fileUtilityService = fileUtilityService;
             _pdfToImageConverter = pdfToImageConverter;
-            _logger = loggerFactory.CreateLogger<FileController>();
+            _logger = loggerFactory.CreateLogger<OcrController>();
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("image/for-ocr/accuracy/{accuracy}")]
+        [HttpPost("image/for-ocr/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ImageForOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low)
+        public async Task<IActionResult> ImageForOcr(IFormFile file, Accuracy accuracy = Accuracy.Low)
         {
             var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
             try
             {
                 _logger.LogInformation("Validating file extension.");
-                var extension = Path.GetExtension(inputFile.FileName).ToLower();
+                var extension = Path.GetExtension(file.FileName).ToLower();
                 if (!extension.Equals(".bmp")
                  && !extension.Equals(".tif")
                  && !extension.Equals(".tiff")
@@ -59,11 +59,11 @@ namespace OcrSharp.Api.Controllers
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
-                var tempInputFile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
-                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(inputFile.OpenReadStream()));
-                image.Save(tempInputFile);
+                var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
+                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(file.OpenReadStream()));
+                image.Save(tempfile);
 
-                var result = await _tesseractService.GetText(tempInputFile, extension, accuracy);
+                var result = await _tesseractService.GetText(tempfile, extension, accuracy);
                 return Ok(result);
             }
             catch (Exception)
@@ -77,11 +77,11 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("image/for-data-ocr/accuracy/{accuracy}")]
+        [HttpPost("image/for-data-ocr/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ImageForDataOcr(IFormFile inputFile, Accuracy accuracy = Accuracy.Low)
+        public async Task<IActionResult> ImageForDataOcr(IFormFile file, Accuracy accuracy = Accuracy.Low)
         {
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
@@ -91,7 +91,7 @@ namespace OcrSharp.Api.Controllers
             try
             {
                 _logger.LogInformation("Validating file extension.");
-                var extension = Path.GetExtension(inputFile.FileName).ToLower();
+                var extension = Path.GetExtension(file.FileName).ToLower();
                 if (!extension.Equals(".bmp")
                  && !extension.Equals(".tif")
                  && !extension.Equals(".tiff")
@@ -104,11 +104,11 @@ namespace OcrSharp.Api.Controllers
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
-                var tempInputFile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
-                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(inputFile.OpenReadStream()));
-                image.Save(tempInputFile);
+                var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}{extension}";
+                var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(file.OpenReadStream()));
+                image.Save(tempfile);
 
-                var result = await _tesseractService.GetText(tempInputFile, extension, accuracy);
+                var result = await _tesseractService.GetText(tempfile, extension, accuracy);
 
                 TimeSpan el = stopWatch.Elapsed;
                 string strElapsedTime = string.Format("{0:00}:{1:00}:{2:00}.{3:00}",
@@ -117,7 +117,7 @@ namespace OcrSharp.Api.Controllers
 
                 var ocr = new OcrResultViewModel
                 {
-                    FileName = Path.GetFileName(tempInputFile),
+                    FileName = Path.GetFileName(tempfile),
                     Content = result,
                     RunTime = strElapsedTime,
                 };
@@ -135,19 +135,19 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("pdf/to-tiff")]
+        [HttpPost("pdf/to-tiff")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile inputFile)
+        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile file)
         {
             _logger.LogInformation("Validating file extension.");
-            var extension = Path.GetExtension(inputFile.FileName).ToLower();
+            var extension = Path.GetExtension(file.FileName).ToLower();
             if (!extension.Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
             const string extensionImage = ".tif";
-            var listBuffres = await _pdfToImageConverter.ConvertToStreams(inputFile.OpenReadStream().ConvertToArray(), extensionImage);
+            var listBuffres = await _pdfToImageConverter.ConvertToStreams(file.OpenReadStream().ConvertToArray(), extensionImage);
 
             _logger.LogInformation("Zipping files ...");
             var archive = await _fileUtilityService.GetZipArchive(listBuffres, extensionImage);
@@ -157,68 +157,68 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("pdf/number-of-pages")]
+        [HttpPost("pdf/number-of-pages")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetNumberOfPages(IFormFile inputFile)
+        public async Task<IActionResult> GetNumberOfPages(IFormFile file)
         {
             _logger.LogInformation("Validating file extension.");
-            var extension = Path.GetExtension(inputFile.FileName).ToLower();
+            var extension = Path.GetExtension(file.FileName).ToLower();
             if (!extension.Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
             _logger.LogInformation("Getting the number of pages.");
-            return Ok(await _pdfToImageConverter.GetNumberOfPageAsync(inputFile.OpenReadStream().ConvertToArray()));
+            return Ok(await _pdfToImageConverter.GetNumberOfPageAsync(file.OpenReadStream().ConvertToArray()));
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("pdf/page-to-tiff/{pageNumber}")]
+        [HttpPost("pdf/page-to-tiff/{pageNumber}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile inputFile, int pageNumber)
+        public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile file, int pageNumber)
         {
             _logger.LogInformation("Validating file extension.");
-            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+            if (!Path.GetExtension(file.FileName).Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation($"Converting page {pageNumber} of the file {inputFile.FileName} in image");
-            using (var inputStream = inputFile.OpenReadStream())
+            _logger.LogInformation($"Converting page {pageNumber} of the file {file.FileName} in image");
+            using (var inputStream = file.OpenReadStream())
             {
                 var image = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif");
                     _logger.LogInformation($"Conversion finished.");
 
-                var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
-                return await Task.FromResult(ConfigurationFileStreamToDownload(image, tempInputFile, "image/tiff"));
+                var tempfile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
+                return await Task.FromResult(ConfigurationFileStreamToDownload(image, tempfile, "image/tiff"));
             }
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPut("pdf/extract-text-by-page/{pageNumber}/accuracy/{accuracy}")]
+        [HttpPost("pdf/extract-text-by-page/{pageNumber}/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile inputFile, int pageNumber, Accuracy accuracy = Accuracy.Low)
+        public async Task<IActionResult> ExtracTextFromPdfPage(IFormFile file, int pageNumber, Accuracy accuracy = Accuracy.Low)
         {
-            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+            if (!Path.GetExtension(file.FileName).Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
             _logger.LogInformation("Validating file extension.");
-            if (!Path.GetExtension(inputFile.FileName).Equals(".pdf"))
+            if (!Path.GetExtension(file.FileName).Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
 
-            _logger.LogInformation($"Converting page {pageNumber} of the file {inputFile.FileName} in image");
-            using (var inputStream = inputFile.OpenReadStream())
+            _logger.LogInformation($"Converting page {pageNumber} of the file {file.FileName} in image");
+            using (var inputStream = file.OpenReadStream())
             {
                 using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif"))
                 {
                     _logger.LogInformation($"Conversion finished.");
-                    var tempInputFile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
+                    var tempfile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
                     using (var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(imageStream)))
                     {
-                        image.Save(tempInputFile);
-                        var result = await _tesseractService.GetText(tempInputFile, ".tif", accuracy);
+                        image.Save(tempfile);
+                        var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
                         return Ok(result);
                     }
                 }

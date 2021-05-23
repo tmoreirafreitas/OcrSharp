@@ -9,6 +9,7 @@ WORKDIR /
 RUN apt-get update && apt-get -y install --no-install-recommends \
     build-essential \
     apt-transport-https \
+    net-tools \
     software-properties-common \
     ghostscript \
     wget \
