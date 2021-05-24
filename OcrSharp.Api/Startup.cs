@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Configuration;
@@ -7,6 +9,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using OcrSharp.Api.Extensions;
 using OcrSharp.Api.Middleware;
 using OcrSharp.Api.Setup;
@@ -42,7 +46,7 @@ namespace OcrSharp.Api
             services.AddOptions();
             services.AddControllers();
 
-            services.InstallServicesInAssembly(Configuration);
+            services.InstallServicesInAssembly(Configuration);            
 
             services.AddSignalR(hubOptions =>
             {
@@ -78,7 +82,9 @@ namespace OcrSharp.Api
                 // add a custom operation filter which sets default values
                 options.OperationFilter<SwaggerDefaultValues>();
                 options.DocInclusionPredicate((docName, description) => true);
-            });            
+            });
+
+            services.AddHealthChecks();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -93,7 +99,7 @@ namespace OcrSharp.Api
             else
             {
                 app.UseStatusCodePages();
-                app.UseHsts();
+                app.UseHsts();                
             }
 
             app.UseResponseCompression();
@@ -116,6 +122,25 @@ namespace OcrSharp.Api
             {
                 endpoints.MapControllers();
                 endpoints.MapHub<OcrMessageHub>("/OcrMessageHub");
+            });
+
+            //Ativa o HealthChecks
+            app.UseHealthChecks("/status", new HealthCheckOptions()
+            {
+                // WriteResponse é um delegate que permite alterar a saída.
+                ResponseWriter = (httpContext, result) => {
+                    httpContext.Response.ContentType = "application/json";
+
+                    var json = new JObject(
+                        new JProperty("status", result.Status.ToString()),
+                        new JProperty("results", new JObject(result.Entries.Select(pair =>
+                            new JProperty(pair.Key, new JObject(
+                                new JProperty("status", pair.Value.Status.ToString()),
+                                new JProperty("description", pair.Value.Description),
+                                new JProperty("data", new JObject(pair.Value.Data.Select(
+                                    p => new JProperty(p.Key, p.Value))))))))));
+                    return httpContext.Response.WriteAsync(json.ToString(Formatting.Indented));
+                }
             });
         }        
 

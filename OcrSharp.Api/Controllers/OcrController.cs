@@ -8,6 +8,7 @@ using OcrSharp.Service.Extensions;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
 
@@ -24,6 +25,7 @@ namespace OcrSharp.Api.Controllers
         private readonly IOpenCvService _openCvService;
         private readonly IFileUtilityService _fileUtilityService;
         private readonly ILogger _logger;
+        private string[] FileExtensions => new string[] { ".tif", ".tiff", ".jpeg", ".jpg", ".jpe", ".jfif", ".png" };
 
         public OcrController(ILoggerFactory loggerFactory, IOpenCvService openCvService,
             IFileUtilityService fileUtilityService, ITesseractService tesseractService,
@@ -37,7 +39,7 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPost("image/for-ocr/accuracy/{accuracy}")]
+        [HttpPost("to-file/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -48,15 +50,8 @@ namespace OcrSharp.Api.Controllers
             {
                 _logger.LogInformation("Validating file extension.");
                 var extension = Path.GetExtension(file.FileName).ToLower();
-                if (!extension.Equals(".bmp")
-                 && !extension.Equals(".tif")
-                 && !extension.Equals(".tiff")
-                 && !extension.Equals(".jpeg")
-                 && !extension.Equals(".jpg")
-                 && !extension.Equals(".jpe")
-                 && !extension.Equals(".jfif")
-                 && !extension.Equals(".png"))
-                    return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
+                if (!FileExtensions.Contains(extension))
+                    return BadRequest($@"There is an unsupported file extension, the supported type is: JPG, PNG, TIFF");
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
@@ -78,7 +73,7 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPost("image/for-data-ocr/accuracy/{accuracy}")]
+        [HttpPost("to-data/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -93,15 +88,8 @@ namespace OcrSharp.Api.Controllers
             {
                 _logger.LogInformation("Validating file extension.");
                 var extension = Path.GetExtension(file.FileName).ToLower();
-                if (!extension.Equals(".bmp")
-                 && !extension.Equals(".tif")
-                 && !extension.Equals(".tiff")
-                 && !extension.Equals(".jpeg")
-                 && !extension.Equals(".jpg")
-                 && !extension.Equals(".jpe")
-                 && !extension.Equals(".jfif")
-                 && !extension.Equals(".png"))
-                    return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
+                if (!FileExtensions.Contains(extension))
+                    return BadRequest($@"There is an unsupported file extension, the supported type is: JPG, PNG, TIFF");
 
                 await _fileUtilityService.CreateFolder(tempPath);
 
@@ -136,66 +124,6 @@ namespace OcrSharp.Api.Controllers
         }
 
         [Consumes("multipart/form-data")]
-        [HttpPost("pdf/to-tiff")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfFileToImages(IFormFile file)
-        {
-            _logger.LogInformation("Validating file extension.");
-            var extension = Path.GetExtension(file.FileName).ToLower();
-            if (!extension.Equals(".pdf"))
-                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
-
-            const string extensionImage = ".tif";
-            var listBuffres = await _pdfToImageConverter.ConvertToStreams(file.OpenReadStream().ConvertToArray(), extensionImage);
-
-            _logger.LogInformation("Zipping files ...");
-            var archive = await _fileUtilityService.GetZipArchive(listBuffres, extensionImage);
-            var filename = $"{Guid.NewGuid().ToString("N").ToUpper()}.zip";
-            _logger.LogInformation("Files zipped ...");
-            return ConfigurationFileStreamToDownload(archive, filename, "application/zip");
-        }
-
-        [Consumes("multipart/form-data")]
-        [HttpPost("pdf/number-of-pages")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetNumberOfPages(IFormFile file)
-        {
-            _logger.LogInformation("Validating file extension.");
-            var extension = Path.GetExtension(file.FileName).ToLower();
-            if (!extension.Equals(".pdf"))
-                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
-
-            _logger.LogInformation("Getting the number of pages.");
-            return Ok(await _pdfToImageConverter.GetNumberOfPageAsync(file.OpenReadStream().ConvertToArray()));
-        }
-
-        [Consumes("multipart/form-data")]
-        [HttpPost("pdf/page-to-tiff/{pageNumber}")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ConvertPdfPageToImageAsync(IFormFile file, int pageNumber)
-        {
-            _logger.LogInformation("Validating file extension.");
-            if (!Path.GetExtension(file.FileName).Equals(".pdf"))
-                return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
-
-            _logger.LogInformation($"Converting page {pageNumber} of the file {file.FileName} in image");
-            using (var inputStream = file.OpenReadStream())
-            {
-                var image = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif");
-                    _logger.LogInformation($"Conversion finished.");
-
-                var tempfile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
-                return await Task.FromResult(ConfigurationFileStreamToDownload(image, tempfile, "image/tiff"));
-            }
-        }
-
-        [Consumes("multipart/form-data")]
         [HttpPost("pdf/extract-text-by-page/{pageNumber}/accuracy/{accuracy}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -208,31 +136,38 @@ namespace OcrSharp.Api.Controllers
             _logger.LogInformation("Validating file extension.");
             if (!Path.GetExtension(file.FileName).Equals(".pdf"))
                 return BadRequest($@"There is an unsupported file extension, the supported type is: Adobe PDF files (*. Pdf)");
+            
+            var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
 
-            _logger.LogInformation($"Converting page {pageNumber} of the file {file.FileName} in image");
-            using (var inputStream = file.OpenReadStream())
+            try
             {
-                using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif"))
+                using (var inputStream = file.OpenReadStream())
                 {
-                    _logger.LogInformation($"Conversion finished.");
-                    var tempfile = $"{Guid.NewGuid().ToString("N").ToUpper()}.tif";
-                    using (var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(imageStream)))
+                    _logger.LogInformation($"Converting page {pageNumber} of the file {file.FileName} in image");
+                    using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(inputStream.ConvertToArray(), pageNumber, ".tif"))
                     {
-                        image.Save(tempfile);
-                        var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
-                        return Ok(result);
+                        _logger.LogInformation($"Conversion finished.");
+
+                        await _fileUtilityService.CreateFolder(tempPath);
+                        var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}.tif";
+
+                        using (var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(imageStream)))
+                        {
+                            image.Save(tempfile);
+                            var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
+                            return Ok(result);
+                        }
                     }
                 }
             }
-        }
-
-        private FileStreamResult ConfigurationFileStreamToDownload(Stream file, string fileName, string contentType)
-        {
-            HttpContext.Response.Headers.Add("Content-Type", contentType);
-            HttpContext.Response.Headers.Add("Content-Filename", fileName);
-            HttpContext.Response.Headers.Add("content-disposition", $"attachment;filename={fileName}");
-            HttpContext.Response.Headers.Add("Access-Control-Expose-Headers", "Content-Filename");
-            return File(file, contentType);
+            catch (Exception)
+            {
+                throw;
+            }
+            finally
+            {
+                await _fileUtilityService.DeleteAllAsync(tempPath, true);
+            }
         }
     }
 }
