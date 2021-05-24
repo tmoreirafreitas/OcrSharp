@@ -60,6 +60,7 @@ ENV Dpi="--dpi 300"
 ENV Language="por"
 ENV TesseractExe="tesseract"
 ENV ThreadLimit="1"
+ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 80
 
 FROM mcr.microsoft.com/dotnet/sdk:5.0-focal AS build

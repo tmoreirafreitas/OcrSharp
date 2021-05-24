@@ -91,7 +91,7 @@ namespace OcrSharp.Api
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
-                endpoints.MapHub<ImagesMessageHub>("/ImagesMessageHub");
+                endpoints.MapHub<OcrMessageHub>("/OcrMessageHub");
             });
         }
 

@@ -27,7 +27,7 @@ namespace OcrSharp.Service
     {
         private readonly ILogger<TesseractService> _logger;
         private readonly IFileUtilityService _fileUtilityService;
-        private readonly IHubContext<ImagesMessageHub, IImagesMessageHub> _hubContext;
+        private readonly IHubContext<OcrMessageHub, IOcrMessageHub> _hubContext;
         private readonly IConfiguration _configuration;
         private readonly TesseractOptions _tesseractOptions;
         private readonly int _maxthreads = Convert.ToInt32(Math.Ceiling(Environment.ProcessorCount * 0.8 * 1));
@@ -42,7 +42,7 @@ namespace OcrSharp.Service
         /// <param name="tesseractOptions">Option settings used by the OCR Tesseract engine to extract text from images (eng, por, etc)</param>
         public TesseractService(ILogger<TesseractService> logger,
             IFileUtilityService fileUtilityService,
-            IHubContext<ImagesMessageHub, IImagesMessageHub> hubContext,
+            IHubContext<OcrMessageHub, IOcrMessageHub> hubContext,
             IConfiguration configuration,
             IOptions<TesseractOptions> tesseractOptions)
         {

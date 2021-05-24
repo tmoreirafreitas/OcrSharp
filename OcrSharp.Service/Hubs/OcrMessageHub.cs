@@ -13,20 +13,20 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Service.Hubs
 {
-    public class ImagesMessageHub : Hub<IImagesMessageHub>
+    public class OcrMessageHub : Hub<IOcrMessageHub>
     {
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IPdfToImageConverter _pdfToImageConverter;
         private readonly ITesseractService _tesseractService;
         private readonly ILogger _logger;
 
-        public ImagesMessageHub(IFileUtilityService fileUtilityService, ITesseractService tesseractService,
+        public OcrMessageHub(IFileUtilityService fileUtilityService, ITesseractService tesseractService,
                                 IPdfToImageConverter pdfToImageConverter, ILoggerFactory loggerFactory)
         {
             _pdfToImageConverter = pdfToImageConverter;
             _fileUtilityService = fileUtilityService;
             _tesseractService = tesseractService;
-            _logger = loggerFactory.CreateLogger<ImagesMessageHub>();
+            _logger = loggerFactory.CreateLogger<OcrMessageHub>();
         }
 
         public async override Task OnConnectedAsync()
