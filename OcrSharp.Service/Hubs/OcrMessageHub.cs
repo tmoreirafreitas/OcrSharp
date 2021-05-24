@@ -41,6 +41,13 @@ namespace OcrSharp.Service.Hubs
             _logger.LogInformation($"A client disconnected from ImagesMessageHub: {Context.ConnectionId}");
         }
 
+        /// <summary>
+        /// API de OCR de arquivos de JPG, PNG, GIF, TIFF e PDF
+        /// </summary>
+        /// <param name="pdf"></param>
+        /// <param name="accuracy"></param>
+        /// <param name="user"></param>
+        /// <returns></returns>
         public async Task ExtractTextFromPdf(PdfData pdf, Accuracy accuracy, string user)
         {
             Stopwatch stopWatch = new Stopwatch();

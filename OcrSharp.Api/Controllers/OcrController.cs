@@ -13,9 +13,10 @@ using System.Threading.Tasks;
 
 namespace OcrSharp.Api.Controllers
 {
-    [Route("api/ocr")]
     [Produces(MediaTypeNames.Application.Json)]
     [ApiController]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/ocr")]
     public class OcrController : ControllerBase
     {
         private readonly ITesseractService _tesseractService;
