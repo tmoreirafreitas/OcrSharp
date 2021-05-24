@@ -67,11 +67,11 @@ namespace OcrSharp.Service.Hubs
                 docFile.RunTime = ts;
                 _logger.LogInformation($"Sending processed file: {outputFilename} to the client: {user}");
                 string jsonData = string.Format("{0}\n", JsonConvert.SerializeObject(docFile));
-                await Clients.Client(user).ImageMessage(jsonData, StatusMessage.EXTRACTED_TEXT);
+                await Clients.Client(user).OcrMessage(jsonData, StatusMessage.EXTRACTED_TEXT);
 
                 mensagem = $"Total processing time: {elapsedTime}";
                 _logger.LogInformation($"Sending message: {mensagem}");
-                await Clients.Client(user).ImageMessage(mensagem, StatusMessage.FINISHED);
+                await Clients.Client(user).OcrMessage(mensagem, StatusMessage.FINISHED);
 
                 docPages.Clear();
                 docPages = null;

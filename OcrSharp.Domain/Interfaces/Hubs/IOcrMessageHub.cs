@@ -4,6 +4,6 @@ namespace OcrSharp.Domain.Interfaces.Hubs
 {
     public interface IOcrMessageHub
     {
-        Task ImageMessage(string stream, StatusMessage status = StatusMessage.INFORMATIVE);
+        Task OcrMessage(string stream, StatusMessage status = StatusMessage.INFORMATIVE);
     }
 }
