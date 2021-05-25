@@ -20,7 +20,7 @@ Tesseract é uma plataforma de reconhecimento ótico de caracteres de código ab
 ## Como Implantar
 1. Baixe a imagem Docker na sua máquina:
 ```Powershell
-docker pull tmoreirafreitas/ocrsharpapi:latest
+docker pull tmoreirafreitas/tesseract-ocrapi:latest
 ```
 
 2. Execute o Docker na sua máquina:
