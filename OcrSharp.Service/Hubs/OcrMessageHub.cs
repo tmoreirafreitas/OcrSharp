@@ -6,6 +6,7 @@ using OcrSharp.Domain.Entities;
 using OcrSharp.Domain.Interfaces.Hubs;
 using OcrSharp.Domain.Interfaces.Services;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -18,14 +19,17 @@ namespace OcrSharp.Service.Hubs
         private readonly IFileUtilityService _fileUtilityService;
         private readonly IPdfToImageConverter _pdfToImageConverter;
         private readonly ITesseractService _tesseractService;
+        private readonly IOpenCvService _openCvService;
         private readonly ILogger _logger;
 
         public OcrMessageHub(IFileUtilityService fileUtilityService, ITesseractService tesseractService,
-                                IPdfToImageConverter pdfToImageConverter, ILoggerFactory loggerFactory)
+                                IPdfToImageConverter pdfToImageConverter, IOpenCvService openCvService,
+                                ILoggerFactory loggerFactory)
         {
             _pdfToImageConverter = pdfToImageConverter;
             _fileUtilityService = fileUtilityService;
             _tesseractService = tesseractService;
+            _openCvService = openCvService;
             _logger = loggerFactory.CreateLogger<OcrMessageHub>();
         }
 
@@ -58,12 +62,31 @@ namespace OcrSharp.Service.Hubs
             try
             {
                 var pageCount = await _pdfToImageConverter.GetNumberOfPageAsync(pdf.Binary);
-                tempPath = await _pdfToImageConverter.ConvertToFilesPreProcessed(pdf.Binary, ".tif");
+                DocumentFile docFile = null;
+                IList<DocumentPage> docPages = null;
+                var outputFilename = string.Empty;
+                if (pageCount > 1)
+                {
+                    tempPath = await _pdfToImageConverter.ConvertToFilesPreProcessed(pdf.Binary, ".tif");
+                    docPages = await _tesseractService.GetDocumentPages(tempPath, "*.tif", accuracy);
+                    outputFilename = $"{await _fileUtilityService.NewTempFileName(tempPath)}.txt";
+                    docFile = new DocumentFile(pageCount, Path.GetFileName(outputFilename));
+                    docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
+                }
+                else
+                {
+                    tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
+                    await _fileUtilityService.CreateFolder(tempPath);
 
-                var docPages = await _tesseractService.GetDocumentPages(tempPath, "*.tif", accuracy);
-                var outputFilename = $"{await _fileUtilityService.NewTempFileName(tempPath)}.txt";
-                var docFile = new DocumentFile(pageCount, Path.GetFileName(outputFilename));
-                docFile.Pages.AddRange(docPages.OrderBy(x => x.PageNumber));
+                    var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}.tif";
+                    using var ms = new MemoryStream(pdf.Binary);
+                    var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(ms));
+                    image.Save(tempfile);
+
+                    var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
+                    docFile = new DocumentFile(pageCount, $"{Guid.NewGuid().ToString("N").ToUpper()}.txt");
+                    docFile.Pages.Add(new DocumentPage(1, result, true));
+                }
 
                 stopWatch.Stop();
                 TimeSpan ts = stopWatch.Elapsed;
@@ -80,7 +103,6 @@ namespace OcrSharp.Service.Hubs
                 _logger.LogInformation($"Sending message: {mensagem}");
                 await Clients.Client(user).OcrMessage(mensagem, StatusMessage.FINISHED);
 
-                docPages.Clear();
                 docPages = null;
                 docFile.Dispose();
                 docFile = null;
