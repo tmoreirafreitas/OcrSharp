@@ -80,6 +80,7 @@ namespace OcrSharp.Service.Hubs
 
                     var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}.tif";
                     using var ms = new MemoryStream(pdf.Binary);
+                    ms.Position = 0;
                     var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(ms));
                     image.Save(tempfile);
 
