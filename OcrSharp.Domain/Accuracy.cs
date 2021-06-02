@@ -2,8 +2,8 @@
 {
     public enum Accuracy
     {
-        Hight,
-        Low,
-        Medium
+        Low = 0,
+        Medium = 1,
+        Hight = 2,
     }
 }
