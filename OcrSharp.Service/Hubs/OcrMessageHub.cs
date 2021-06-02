@@ -8,6 +8,7 @@ using OcrSharp.Domain.Interfaces.Services;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -76,17 +77,29 @@ namespace OcrSharp.Service.Hubs
                 else
                 {
                     tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N").ToUpper());
+
                     await _fileUtilityService.CreateFolder(tempPath);
 
-                    var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}.tif";
-                    using var ms = new MemoryStream(pdf.Binary);
-                    ms.Position = 0;
-                    var image = await _openCvService.ImageSmootheningAsync(new System.Drawing.Bitmap(ms));
-                    image.Save(tempfile);
+                    _logger.LogInformation($"Converting page {1} of the file {pdf.FileName} in image");
+                    using (var imageStream = await _pdfToImageConverter.ConvertPdfPageToImageStream(pdf.Binary, 0, ".tif"))
+                    {
+                        _logger.LogInformation($"Conversion finished.");
 
-                    var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
-                    docFile = new DocumentFile(pageCount, $"{Guid.NewGuid().ToString("N").ToUpper()}.txt");
-                    docFile.Pages.Add(new DocumentPage(1, result, true));
+                        await _fileUtilityService.CreateFolder(tempPath);
+                        var tempfile = $"{await _fileUtilityService.NewTempFileName(tempPath)}.tif";
+
+                        using (var bmp = new Bitmap(imageStream))
+                        {
+                            using (var image = await _openCvService.ImageSmootheningAsync(bmp))
+                            {
+                                image.Save(tempfile);
+                                var result = await _tesseractService.GetText(tempfile, ".tif", accuracy);
+                                outputFilename = $"{Guid.NewGuid().ToString("N").ToUpper()}.txt";
+                                docFile = new DocumentFile(pageCount, outputFilename);
+                                docFile.Pages.Add(new DocumentPage(1, result, true));
+                            }
+                        }
+                    }
                 }
 
                 stopWatch.Stop();
